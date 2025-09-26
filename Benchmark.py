@@ -718,7 +718,7 @@ def plot_headline_compact(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_
     net_carry_f = carry_f - float(ogc_bps_f)
 
     rows = [
-        ("Total KRD (yrs / 100bp)", tot_krd_f, tot_krd_i),
+        ("Total Duration Contribution (yrs / 100bp)", tot_krd_f, tot_krd_i),
         ("Total DTS",              dts_f,     dts_i),
         ("Carry (bps)",            carry_f,   carry_i),
         ("OGC (bps)",              float(ogc_bps_f), 0.0),
@@ -767,7 +767,7 @@ def plot_dumbbell_duration_by_ccy(krd_fund, krd_index):
     fig.add_trace(go.Scatter(x=df["Fund"],y=df["Currency"],mode="markers",name="Fund",marker=dict(color=RB_COLORS["blue"],size=8)))
     for _,row in df.iterrows():
         fig.add_shape(type="line",x0=row["Index"],x1=row["Fund"],y0=row["Currency"],y1=row["Currency"],line=dict(color=RB_COLORS["med"],width=2))
-    fig.update_layout(title="Duration by Currency (Fund vs Index)",height=PLOT_HEIGHT)
+    fig.update_layout(title="Duration Contribution by Currency (Fund vs Benchmark)",height=PLOT_HEIGHT)
     return fig, df
 
 def plot_duration_diff_by_ccy(krd_fund, krd_index):
@@ -778,7 +778,7 @@ def plot_duration_diff_by_ccy(krd_fund, krd_index):
     diff = (tot_f - tot_i).sort_values(key=lambda s: s.abs(),ascending=True)
     fig = go.Figure(go.Bar(x=diff.values,y=diff.index,orientation="h",
         marker_color=[RB_COLORS["blue"] if v>0 else RB_COLORS["orange"] for v in diff.values]))
-    fig.update_layout(title="Duration Difference by Currency",height=PLOT_HEIGHT)
+    fig.update_layout(title="Duration Contribution Difference by Currency",height=PLOT_HEIGHT)
     return fig,diff
 
 def plot_dumbbell_krd_by_node(krd_fund, krd_index):
@@ -830,9 +830,9 @@ def render_positioning_bullets(krd_fund,krd_index,fund_slice,index_slice,ogc_bps
     top_over=diff_ccy[diff_ccy>0].head(3)
     top_under=diff_ccy[diff_ccy<0].head(2)
     for c,v in top_over.items():
-        lines.append(f"- Overweight **{c}** by {v:.2f} duration units")
+        lines.append(f"- Overweight **{c}** by {v:.2f} duration contribution units")
     for c,v in top_under.items():
-        lines.append(f"- Underweight **{c}** by {abs(v):.2f} duration units")
+        lines.append(f"- Underweight **{c}** by {abs(v):.2f} duration contribution units")
     node_diff=(krd_fund.sum(axis=0)-krd_index.sum(axis=0))
     tilt="long end" if node_diff.loc[["20y","30y"]].sum()>node_diff.loc[["6m","2y"]].sum() else "front end"
     lines.append(f"- Curve tilt towards {tilt}")
@@ -907,7 +907,8 @@ def plot_krd_curve_bubbles(krd_fund: pd.DataFrame, krd_index: pd.DataFrame) -> g
 
 def plot_duration_by_currency_bars(krd_fund: pd.DataFrame, krd_index: pd.DataFrame) -> tuple[go.Figure, pd.DataFrame]:
     """
-    Grouped vertical columns: Fund vs Index total duration (sum of KRD across nodes) per currency.
+    Grouped vertical columns: Fund vs Index duration contribution (sum of KRD across nodes) per currency.
+    KRD values are already weighted by portfolio allocation, so this shows contribution to total portfolio duration.
     Sorted by absolute Fund−Index delta (top N currencies first if many).
     """
     # Use union of all currencies from both Fund and Index
@@ -924,9 +925,9 @@ def plot_duration_by_currency_bars(krd_fund: pd.DataFrame, krd_index: pd.DataFra
     fig.add_bar(name="Benchmark", x=df["Currency"], y=df["Index"], marker_color=RB_COLORS["grey"])
     fig.update_layout(
         barmode="group",
-        title="Total Duration by Currency (Fund vs Benchmark)",
+        title="Duration Contribution by Currency (Fund vs Benchmark)",
         xaxis=dict(title="", tickangle=-15),
-        yaxis=dict(title="Total Duration (yrs / 100bp)", gridcolor="rgba(128,128,128,0.15)"),
+        yaxis=dict(title="Duration Contribution (yrs / 100bp)", gridcolor="rgba(128,128,128,0.15)"),
         height=PLOT_HEIGHT, margin=dict(l=10, r=10, t=50, b=60)
     )
     return fig, df
@@ -946,7 +947,7 @@ def stat_tile(label: str, value: float, suffix: str = "", emphasize: bool = True
     )
 
 def compute_headline_stats(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_f):
-    tot_dur_f = float(krd_fund.values.sum())           # yrs/100bp
+    tot_dur_f = float(krd_fund.values.sum())           # total duration contribution (yrs/100bp)
     tot_dur_i = float(krd_index.values.sum())
     dts_f     = float(dts_total(fund_slice))           # unitless DTS
     dts_i     = float(dts_total(index_slice))          # unitless DTS
@@ -1887,8 +1888,8 @@ with tab_pos:
         positioning_summary = render_positioning_bullets(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_f)
         st.markdown(positioning_summary)
     
-    # 2) Duration by Currency and Curve Sensitivity by Maturity
-    st.subheader("Duration by Currency  •  Curve Sensitivity by Maturity")
+    # 2) Duration Contribution by Currency and Curve Sensitivity by Maturity
+    st.subheader("Duration Contribution by Currency  •  Curve Sensitivity by Maturity")
     col1, col2 = st.columns(2)
     with col1:
         fig_ccy_bars, ccy_table = plot_duration_by_currency_bars(krd_fund, krd_index)
@@ -1897,7 +1898,7 @@ with tab_pos:
         
         with st.expander("Download currency totals (Fund vs Benchmark)"):
             st.download_button("Download CSV", ccy_table.to_csv(index=False).encode("utf-8"),
-                               file_name=f"{fund_code}_duration_by_currency.csv", mime="text/csv")
+                               file_name=f"{fund_code}_duration_contribution_by_currency.csv", mime="text/csv")
     with col2:
         fig_curve = plot_krd_curve_bubbles(krd_fund, krd_index)
         fig_curve.update_layout(height=PLOT_HEIGHT)
