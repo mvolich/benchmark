@@ -1075,6 +1075,70 @@ def _krd_totals(krd_df: pd.DataFrame) -> dict:
     by_node = krd_df.sum(axis=0).astype(float).to_dict()
     return {"by_currency": by_ccy, "by_maturity": by_node, "total": float(krd_df.values.sum())}
 
+def _fmt_bps(v: float) -> str:
+    return f"{v:+.0f} bps"
+
+def build_driver_bullets_from_payload(payload: dict) -> list[str]:
+    """Three crisp, quantified bullets explaining Fund − Benchmark outcome by driver."""
+    rel   = payload.get("relative", {})
+    smeta = payload.get("scenario_meta", {})
+    rmeta = payload.get("rates_meta", {})
+
+    rel_credit = float(rel.get("credit_bps", 0.0))
+    rel_rates  = float(rel.get("rates_bps", 0.0))
+    rel_carry  = float(rel.get("carry_bps", 0.0))
+    rel_ogc    = float(rel.get("ogc_bps", 0.0))
+
+    credit_env = smeta.get("credit_environment", "no_change")
+    if credit_env == "tightening":
+        credit_line = f"Credit tailwind vs benchmark: {_fmt_bps(rel_credit)} with tightening spreads."
+    elif credit_env == "widening":
+        credit_line = f"Credit protection vs benchmark: {_fmt_bps(rel_credit)} with widening spreads."
+    else:
+        credit_line = f"Credit contribution vs benchmark: {_fmt_bps(rel_credit)}."
+
+    curve = rmeta.get("curve_shape", "flat")
+    bias  = rmeta.get("rates_bias", rmeta.get("rates_bias_for_fund", "neutral"))
+    rates_line = f"Rates positioning vs benchmark: {_fmt_bps(rel_rates)} ({bias}, curve {curve})."
+
+    other_line = f"Carry & costs (relative): {_fmt_bps(rel_carry + rel_ogc)} (carry {_fmt_bps(rel_carry)}, OGC {_fmt_bps(rel_ogc)})."
+
+    return [credit_line, rates_line, other_line]
+
+def _propose_rates_trim_add(payload: dict) -> dict:
+    """
+    Heuristic rates rec: if relative rates bps is negative and curve is 'bear' or 'steepening',
+    suggest trimming long-end overweights; else suggest small add to short/belly if bull.
+    """
+    rel   = payload.get("relative", {})
+    rmeta = payload.get("rates_meta", {})
+    pos   = payload.get("positioning", {})
+    rel_rates = float(rel.get("rates_bps", 0.0))
+    curve = rmeta.get("curve_shape", "flat")
+    bias  = rmeta.get("rates_bias", rmeta.get("rates_bias_for_fund", "neutral"))
+    # default neutral rec if no meta present
+    rec = {
+        "title": "Align Duration Profile",
+        "action": "Tune curve exposures in small steps; re-test under alternate scenarios.",
+        "est_delta_bps": 0,
+        "why": "Keep rate risk changes sized and evidence-based."
+    }
+    if rel_rates < 0 and (bias.startswith("bear") or curve=="steepening"):
+        rec = {
+            "title": "Trim Long-End Duration",
+            "action": "Reduce exposure in 10–30y buckets modestly to lessen scenario drag vs benchmark.",
+            "est_delta_bps": 0,
+            "why": "Relative underperformance comes from rates; trimming long end helps under bear/steepening moves."
+        }
+    elif rel_rates > 0 and (bias.startswith("bull") or curve=="flattening"):
+        rec = {
+            "title": "Maintain/Shift Duration to Belly",
+            "action": "Maintain duration; if adding, prefer 2–5y to preserve curve resilience.",
+            "est_delta_bps": 0,
+            "why": "Rates positioning is supportive; the belly balances carry vs convexity."
+        }
+    return rec
+
 def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.DataFrame]], scn_id: int,
                         krd_fund: pd.DataFrame, krd_index: pd.DataFrame, ogc_bps_f: float) -> dict:
     """Assemble full scenario & positioning context for grounded insights."""
@@ -1325,76 +1389,110 @@ def generate_genai_insights(payload: dict) -> dict:
             "recommendations": []
         }
 
+import re
+
+def _norm_key(s: str) -> str:
+    """Normalize a title/action to a semantic key for de-dup."""
+    if not s: return ""
+    s = s.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"[^a-z0-9 ]", "", s)
+    return s
+
 def vet_recommendations(payload: dict, ai: dict) -> dict:
     """
-    Reject/rewrite recs that violate domain logic:
-      - No 'increase credit' when credit_env = widening AND fund is underweight credit AND that underweight drives relative gains.
-      - No OGC/fee changes (forbidden). Remove such recs and replace with a scenario-consistent one if needed.
+    Guardrails & polish:
+      - Forbid any fee/OGC references.
+      - Collapse multiple 'increase credit' recs into ONE sized recommendation in tightening when underweight.
+      - Preserve widening underweight guardrail.
+      - Ensure unique titles; if <3 items, add a rates governance rec.
     """
     try:
-        recs = ai.get("recommendations", [])
-        if not recs:
-            return ai
+        input_recs = ai.get("recommendations", []) or []
+        out = []
+        seen = set()
 
-        credit_env = payload.get("scenario_meta", {}).get("credit_environment", "no_change")
-        credit_delta = float(payload["relative"]["credit_bps"])  # Fund minus Benchmark
-        dts_f = float(payload["positioning"]["dts_fund"])
-        dts_b = float(payload["positioning"]["dts_benchmark"])
-        credit_underweight = dts_f < dts_b - 1e-9
-        credit_overweight = dts_f > dts_b + 1e-9
+        # scenario context
+        credit_env = payload.get("scenario_meta", {}).get("credit_environment","no_change")
+        spread_pct = float(payload.get("scenario_meta",{}).get("spread_move_pct",0.0))  # +widen / -tighten
+        rel_credit = float(payload.get("relative",{}).get("credit_bps", 0.0))  # Fund − Bmk
+        dts_f = float(payload.get("positioning",{}).get("dts_fund", 0.0))
+        dts_b = float(payload.get("positioning",{}).get("dts_benchmark", 0.0))
+        dts_gap = max(dts_b - dts_f, 0.0)  # amount underweight vs benchmark
+        credit_underweight  = dts_gap > 1e-9
+        credit_overweight   = (dts_f - dts_b) > 1e-9
 
-        fixed = []
-        for r in recs:
-            t = (r.get("title") or "").lower()
-            a = (r.get("action") or "").lower()
-            why = (r.get("why") or "").lower()
-
-            mentions_credit = ("credit" in t) or ("credit" in a) or ("credit" in why)
-            increase_verbs = any(k in t or k in a for k in ["increase", "add", "raise", "boost"])
-            mentions_ogc_or_fee = any(k in t or k in a or k in why for k in ["ogc", "fee", "fees", "charges"])
-
-            # Block contradictory "increase credit" case in widening when underweight is source of advantage
-            bad_credit_add = mentions_credit and increase_verbs and credit_env == "widening" and credit_underweight and credit_delta > 0
-
-            if mentions_ogc_or_fee:
-                # Drop fee/OGC ideas entirely
+        # 1) forbid fees/OGC; capture any model ideas we still want
+        filtered = []
+        for r in input_recs:
+            t = (r.get("title") or "")
+            a = (r.get("action") or "")
+            why = (r.get("why") or "")
+            if any(k in (t+a+why).lower() for k in ["ogc","fee","fees","charges"]):
                 continue
+            filtered.append(r)
 
-            if bad_credit_add:
-                r = {
-                    "title": "Maintain Defensive Credit Stance",
-                    "action": "Maintain or trim credit exposure modestly; relative advantage stems from lower DTS in widening spreads.",
-                    "est_delta_bps": 0,
-                    "why": "Adding credit here would erode the Fund's scenario advantage vs the benchmark."
-                }
-            
-            # Positive tightening rule
-            elif credit_env == "tightening" and credit_underweight:
-                r = {
-                    "title": "Increase Credit Exposure",
-                    "action": "Add credit exposure toward benchmark; tightening spreads are supportive.",
-                    "est_delta_bps": int((dts_b-dts_f) * abs(payload['scenario_meta']['spread_move_pct'])*100),
-                    "why": "Fund is underweight credit while spreads tighten; adding credit closes the gap."
-                }
-            elif credit_env == "tightening" and credit_overweight:
-                r = {
-                    "title": "Maintain or Lighten Credit Slightly",
-                    "action": "Benchmark already has more credit; avoid overexposure even in tightening.",
-                    "est_delta_bps": 0,
-                    "why": "Fund is already overweight credit relative to benchmark; risk control remains important."
-                }
+        # 2) collapse all 'increase credit' variants; keep none for now (we might inject our own)
+        inc_credit_keys = []
+        keep = []
+        for r in filtered:
+            key = _norm_key((r.get("title") or "") + " " + (r.get("action") or ""))
+            if ("credit" in key) and any(w in key for w in ["increase","add","raise","boost"]):
+                inc_credit_keys.append(key)
+                continue
+            keep.append(r)
 
-            fixed.append(r)
-
-        # Keep exactly three items if possible (pad with neutral guidance if AI returned fewer)
-        while len(fixed) < 3:
-            fixed.append({
-                "title": "No additional tactical change",
-                "action": "Reassess exposures after market confirms scenario path.",
+        # 3) build scenario-consistent credit rec (if applicable)
+        credit_rec = None
+        if credit_env == "widening" and credit_underweight and rel_credit > 0:
+            credit_rec = {
+                "title": "Maintain Defensive Credit Stance",
+                "action": "Maintain or trim credit; lower DTS protects relative returns while spreads widen.",
                 "est_delta_bps": 0,
-                "why": "Avoid over-adjusting on a single scenario realisation."
+                "why": "Adding credit would erode the scenario advantage."
+            }
+        elif credit_env == "tightening" and credit_underweight:
+            add_dts = 0.35 * dts_gap  # cap at 35% of gap
+            est = int(add_dts * abs(spread_pct) * 100.0)  # linear DTS × %change × 100
+            credit_rec = {
+                "title": "Increase Credit Exposure (toward benchmark)",
+                "action": f"Add ~{add_dts:.2f} DTS (≈35% of gap) to reduce underweight while spreads tighten.",
+                "est_delta_bps": est,
+                "why": "Tightening spreads support credit; measured add improves relative response without overshooting."
+            }
+        elif credit_env == "tightening" and credit_overweight:
+            credit_rec = {
+                "title": "Maintain or Lighten Credit Slightly",
+                "action": "Benchmark already carries more credit risk; avoid overexposure.",
+                "est_delta_bps": 0,
+                "why": "Keep dry powder while spreads tighten; avoid concentration risk."
+            }
+
+        # 4) assemble out list: first add our credit rec (if any), then unique rest
+        def _push(r):
+            k = _norm_key(r.get("title",""))
+            if k and k not in seen:
+                seen.add(k)
+                out.append(r)
+
+        if credit_rec:
+            _push(credit_rec)
+
+        for r in keep:
+            _push(r)
+
+        # 5) top up to 3 with a rates rec (non-duplicate) and a scenario-discipline rec
+        if len(out) < 3:
+            _push(_propose_rates_trim_add(payload))
+        if len(out) < 3:
+            _push({
+                "title": "Scenario Discipline",
+                "action": "Limit changes to sized adjustments; re-test under alternate scenarios before larger moves.",
+                "est_delta_bps": 0,
+                "why": "Avoid over-rotation on a single scenario realisation."
             })
-        ai["recommendations"] = fixed[:3]
+
+        ai["recommendations"] = out[:3]
         return ai
     except Exception:
         return ai
@@ -2059,8 +2157,8 @@ with tab_ins:
         st.markdown(payload.get("headline", ""))
 
         st.markdown("### Key Drivers")
-        drivers = result.get("drivers", [])
-        for d in drivers:
+        driver_bullets = build_driver_bullets_from_payload(payload)
+        for d in driver_bullets:
             st.markdown(f"- {d}")
 
         st.markdown("### Strategic Takeaway")
