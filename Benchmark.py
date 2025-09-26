@@ -797,6 +797,79 @@ def plot_duration_diff_by_ccy(krd_fund, krd_index):
     )
     return fig, diff
 
+def plot_krd_diff_by_currency_and_maturity(krd_fund: pd.DataFrame, krd_index: pd.DataFrame) -> tuple[go.Figure, pd.DataFrame]:
+    """
+    Grouped bar chart showing KRD differences (Fund - Benchmark) by currency and maturity.
+    Each currency gets a group of bars showing differences across all maturity nodes.
+    """
+    # Use union of all currencies from both Fund and Index
+    all_currencies = sorted(set(krd_fund.index).union(set(krd_index.index)))
+    
+    # Align both matrices to same currencies and nodes
+    krd_f_aligned = krd_fund.reindex(all_currencies).fillna(0.0)
+    krd_i_aligned = krd_index.reindex(all_currencies).fillna(0.0)
+    
+    # Calculate differences for each currency-maturity combination
+    diff_matrix = krd_f_aligned - krd_i_aligned
+    
+    # Filter to only currencies with meaningful differences (not all zeros)
+    meaningful_currencies = []
+    for ccy in all_currencies:
+        if abs(diff_matrix.loc[ccy]).max() > 0.01:  # At least 0.01 difference somewhere
+            meaningful_currencies.append(ccy)
+    
+    if not meaningful_currencies:
+        meaningful_currencies = all_currencies[:5]  # Fallback to first 5
+    
+    diff_filtered = diff_matrix.loc[meaningful_currencies]
+    
+    # Create the grouped bar chart
+    fig = go.Figure()
+    
+    # Color palette for different maturities
+    maturity_colors = {
+        "6m": "#1f77b4",   # Blue
+        "2y": "#ff7f0e",   # Orange  
+        "5y": "#2ca02c",   # Green
+        "10y": "#d62728",  # Red
+        "20y": "#9467bd",  # Purple
+        "30y": "#8c564b"   # Brown
+    }
+    
+    # Add bars for each maturity
+    for maturity in NODES_ORDER:
+        if maturity in diff_filtered.columns:
+            fig.add_trace(go.Bar(
+                name=maturity,
+                x=diff_filtered.index,
+                y=diff_filtered[maturity],
+                marker_color=maturity_colors.get(maturity, "#17becf"),
+                hovertemplate=f"Currency: %{{x}}<br>Maturity: {maturity}<br>KRD Difference: %{{y:.3f}} yrs/100bp<extra></extra>"
+            ))
+    
+    fig.update_layout(
+        title="KRD Differences by Currency and Maturity (Fund − Benchmark)",
+        xaxis_title="Currency",
+        yaxis_title="KRD Difference (yrs / 100bp)",
+        barmode='group',
+        height=PLOT_HEIGHT,
+        margin=dict(l=10, r=10, t=50, b=60),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        xaxis=dict(tickangle=-15)
+    )
+    
+    # Create summary DataFrame for download
+    summary_df = diff_filtered.reset_index()
+    summary_df = summary_df.rename(columns={'index': 'Currency'})
+    
+    return fig, summary_df
+
 def plot_dumbbell_krd_by_node(krd_fund, krd_index):
     tot_f, tot_i = krd_fund.sum(axis=0), krd_index.sum(axis=0)
     df = pd.DataFrame({"Node":tot_f.index,"Fund":tot_f.values,"Index":tot_i.values})
@@ -1947,9 +2020,18 @@ with tab_pos:
     st.subheader("Differences vs Benchmark")
     c_left, c_right = st.columns(2)
     with c_left:
-        fig_dur_diff, _ = plot_duration_diff_by_ccy(krd_fund, krd_index)
-        fig_dur_diff.update_layout(height=PLOT_HEIGHT)
-        st.plotly_chart(fig_dur_diff, use_container_width=True, config=PLOTLY_CONFIG)
+        fig_krd_breakdown, krd_breakdown_df = plot_krd_diff_by_currency_and_maturity(krd_fund, krd_index)
+        fig_krd_breakdown.update_layout(height=PLOT_HEIGHT)
+        st.plotly_chart(fig_krd_breakdown, use_container_width=True, config=PLOTLY_CONFIG)
+        
+        with st.expander("Download KRD differences by currency and maturity"):
+            st.dataframe(krd_breakdown_df, use_container_width=True, height=200)
+            st.download_button(
+                "Download CSV",
+                krd_breakdown_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"{fund_code}_krd_differences_by_currency_maturity.csv",
+                mime="text/csv"
+            )
     with c_right:
         fig_node_diff, _ = plot_krd_node_diff(krd_fund, krd_index)
         fig_node_diff.update_layout(height=PLOT_HEIGHT)
