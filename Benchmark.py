@@ -1074,33 +1074,50 @@ def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.Da
 
 def generate_genai_insights(payload: dict) -> dict:
     """Call OpenAI API with structured payload and return parsed JSON."""
-    openai.api_key = st.secrets["openai"]["OPENAI_API_KEY"]
-    system_msg = {
-        "role": "system",
-        "content": (
-            "You are a fixed-income portfolio assistant. "
-            "Only use the structured JSON provided. "
-            "Do not invent numbers. Provide a short summary and exactly 3 recommendations. "
-            "Each recommendation must have: title, action, est_delta_bps, why."
-        )
-    }
-    user_msg = {
-        "role": "user",
-        "content": f"Context:\n{json.dumps(payload)}\n\n"
-                   "Respond in JSON with keys: summary_bullets (list of str), recommendations (list of dict)."
-    }
-    resp = openai.ChatCompletion.create(
-        model="gpt-4o-mini",
-        messages=[system_msg, user_msg],
-        max_tokens=500,
-        temperature=0.3,
-    )
-    txt = resp.choices[0].message["content"]
     try:
+        openai.api_key = st.secrets["openai"]["OPENAI_API_KEY"]
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are a fixed-income portfolio assistant. "
+                "Only use the structured JSON provided. "
+                "Do not invent numbers. Provide a short summary and exactly 3 recommendations. "
+                "Each recommendation must have: title, action, est_delta_bps, why. "
+                "Respond ONLY with valid JSON, no markdown formatting or extra text."
+            )
+        }
+        user_msg = {
+            "role": "user",
+            "content": f"Context:\n{json.dumps(payload)}\n\n"
+                       "Respond in JSON format with keys: summary_bullets (list of str), recommendations (list of dict)."
+        }
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[system_msg, user_msg],
+            max_tokens=500,
+            temperature=0.3,
+        )
+        txt = resp.choices[0].message["content"].strip()
+        
+        # Clean up common formatting issues
+        if txt.startswith("```json"):
+            txt = txt[7:]
+        if txt.endswith("```"):
+            txt = txt[:-3]
+        txt = txt.strip()
+        
+        # Show raw response for debugging (in expander)
+        with st.expander("Debug: Raw AI Response"):
+            st.code(txt, language="json")
+        
         data = json.loads(txt)
         return data
-    except Exception:
-        return {"summary_bullets": ["⚠️ Could not parse AI output."], "recommendations": []}
+    except KeyError:
+        return {"summary_bullets": ["⚠️ OpenAI API key not found in secrets."], "recommendations": []}
+    except json.JSONDecodeError as e:
+        return {"summary_bullets": [f"⚠️ JSON parsing error: {str(e)}"], "recommendations": []}
+    except Exception as e:
+        return {"summary_bullets": [f"⚠️ API error: {str(e)}"], "recommendations": []}
 
 def attribution_tiles_row(label_prefix: str, carry: float, credit: float, rates: float, ogc: float, total: float, show_ogc_value=True):
     """Render a row of attribution tiles showing Carry, Credit, Rates, OGC, and Total (always 5 columns for alignment)."""
