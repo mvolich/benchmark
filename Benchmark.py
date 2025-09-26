@@ -776,49 +776,26 @@ def plot_duration_diff_by_ccy(krd_fund, krd_index):
     tot_f = krd_fund.sum(axis=1).reindex(all_currencies).fillna(0.0)
     tot_i = krd_index.sum(axis=1).reindex(all_currencies).fillna(0.0)
     diff = (tot_f - tot_i).sort_values(key=lambda s: s.abs(),ascending=True)
-    fig = go.Figure(go.Bar(x=diff.values,y=diff.index,orientation="h",
-        marker_color=[RB_COLORS["blue"] if v>0 else RB_COLORS["orange"] for v in diff.values]))
-    fig.update_layout(title="Duration Contribution Difference by Currency",height=PLOT_HEIGHT)
-    return fig,diff
-
-def plot_krd_diff_by_currency(krd_fund: pd.DataFrame, krd_index: pd.DataFrame) -> tuple[go.Figure, pd.DataFrame]:
-    """
-    Horizontal bar chart showing KRD differences (Fund - Benchmark) for each currency.
-    Shows the total KRD difference across all maturity nodes for each currency.
-    """
-    # Use union of all currencies from both Fund and Index
-    all_currencies = sorted(set(krd_fund.index).union(set(krd_index.index)))
-    tot_f = krd_fund.sum(axis=1).reindex(all_currencies).fillna(0.0)
-    tot_i = krd_index.sum(axis=1).reindex(all_currencies).fillna(0.0)
-    diff = (tot_f - tot_i).sort_values(key=lambda s: s.abs(), ascending=True)
-    
-    # Create DataFrame for return
-    diff_df = pd.DataFrame({
-        'Currency': diff.index,
-        'Fund_KRD': tot_f.reindex(diff.index).values,
-        'Benchmark_KRD': tot_i.reindex(diff.index).values,
-        'Difference': diff.values
-    })
     
     fig = go.Figure(go.Bar(
-        x=diff.values, 
-        y=diff.index, 
+        x=diff.values,
+        y=diff.index,
         orientation="h",
-        marker_color=[RB_COLORS["blue"] if v > 0 else RB_COLORS["orange"] for v in diff.values],
+        marker_color=[RB_COLORS["blue"] if v>0 else RB_COLORS["orange"] for v in diff.values],
         text=[f"{v:+.2f}" for v in diff.values],
         textposition="outside",
-        hovertemplate="Currency: %{y}<br>KRD Difference: %{x:.2f} yrs/100bp<extra></extra>"
+        hovertemplate="Currency: %{y}<br>Duration Contribution Difference: %{x:.2f} yrs/100bp<extra></extra>"
     ))
     
     fig.update_layout(
-        title="KRD Difference by Currency (Fund − Benchmark)",
-        xaxis_title="KRD Difference (yrs / 100bp)",
+        title="Duration Contribution Difference by Currency",
+        xaxis_title="Duration Contribution Difference (yrs / 100bp)",
         yaxis_title="Currency",
         height=PLOT_HEIGHT,
         margin=dict(l=10, r=10, t=50, b=40),
         showlegend=False
     )
-    return fig, diff_df
+    return fig, diff
 
 def plot_dumbbell_krd_by_node(krd_fund, krd_index):
     tot_f, tot_i = krd_fund.sum(axis=0), krd_index.sum(axis=0)
@@ -1968,24 +1945,11 @@ with tab_pos:
     
     # 3) Differences vs Benchmark
     st.subheader("Differences vs Benchmark")
-    c_left, c_center, c_right = st.columns(3)
+    c_left, c_right = st.columns(2)
     with c_left:
         fig_dur_diff, _ = plot_duration_diff_by_ccy(krd_fund, krd_index)
         fig_dur_diff.update_layout(height=PLOT_HEIGHT)
         st.plotly_chart(fig_dur_diff, use_container_width=True, config=PLOTLY_CONFIG)
-    with c_center:
-        fig_krd_diff, krd_diff_df = plot_krd_diff_by_currency(krd_fund, krd_index)
-        fig_krd_diff.update_layout(height=PLOT_HEIGHT)
-        st.plotly_chart(fig_krd_diff, use_container_width=True, config=PLOTLY_CONFIG)
-        
-        with st.expander("Download KRD differences by currency"):
-            st.dataframe(krd_diff_df, use_container_width=True, height=200)
-            st.download_button(
-                "Download CSV",
-                krd_diff_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"{fund_code}_krd_difference_by_currency.csv",
-                mime="text/csv"
-            )
     with c_right:
         fig_node_diff, _ = plot_krd_node_diff(krd_fund, krd_index)
         fig_node_diff.update_layout(height=PLOT_HEIGHT)
