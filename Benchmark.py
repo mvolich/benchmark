@@ -1211,16 +1211,17 @@ def generate_genai_insights(payload: dict) -> dict:
         }
         user_msg = {"role": "user", "content": json.dumps(payload)}
         resp = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
+            model="gpt-3.5-turbo",
             messages=[system_msg, user_msg],
-            max_tokens=900,
-            temperature=0.2,
+            max_tokens=800,
+            temperature=0.1,
         )
         txt = resp.choices[0].message["content"].strip()
         
         # Show raw response for debugging
         with st.expander("🔍 Debug: Raw AI Response"):
             st.code(txt, language="json")
+            st.caption(f"Response length: {len(txt)} characters")
         
         # Clean up common formatting issues
         if txt.startswith("```json"):
@@ -1242,28 +1243,65 @@ def generate_genai_insights(payload: dict) -> dict:
         # Clean up the extracted JSON
         txt = txt.strip()
         
-        # Fix common JSON formatting issues
+        # More aggressive JSON cleaning
         # Remove trailing commas before closing brackets/braces
         txt = re.sub(r',(\s*[}\]])', r'\1', txt)
-        # Fix unescaped quotes in strings (basic attempt)
-        txt = re.sub(r'(?<!\\)"([^"]*)"([^"]*)"([^"]*)"', r'"\1\"\2\"\3"', txt)
+        
+        # Try to fix common quote escaping issues
+        # Replace smart quotes and fix basic unescaped quotes
+        txt = re.sub(r'([^\\])"([^",:}\]]*)"([^",:}\]]*)"', r'\1"\2\\\"\3"', txt)
         
         try:
             data = json.loads(txt)
         except json.JSONDecodeError as json_err:
-            # Last resort: try to build a minimal valid structure
+            # More sophisticated content extraction
             try:
-                # Extract any text that looks like it might be content
-                headline_match = re.search(r'"headline":\s*"([^"]*)"', txt)
-                drivers_match = re.findall(r'"([^"]*)"(?=\s*[,\]])', txt)
+                # Extract structured content with better regex patterns
+                headline_match = re.search(r'"headline":\s*"([^"]*(?:\\.[^"]*)*)"', txt)
+                
+                # Extract drivers array content
+                drivers_section = re.search(r'"drivers":\s*\[(.*?)\]', txt, re.DOTALL)
+                drivers = []
+                if drivers_section:
+                    driver_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', drivers_section.group(1))
+                    drivers = driver_items[:3]  # Take first 3
+                
+                # Extract takeaway
+                takeaway_match = re.search(r'"takeaway":\s*"([^"]*(?:\\.[^"]*)*)"', txt)
+                
+                # Extract recommendations array
+                recs_section = re.search(r'"recommendations":\s*\[(.*?)\]', txt, re.DOTALL)
+                recommendations = []
+                if recs_section:
+                    # Try to extract individual recommendation objects
+                    rec_objects = re.findall(r'\{([^}]*)\}', recs_section.group(1))
+                    for rec_obj in rec_objects[:3]:  # Take first 3
+                        title_match = re.search(r'"title":\s*"([^"]*)"', rec_obj)
+                        action_match = re.search(r'"action":\s*"([^"]*)"', rec_obj)
+                        delta_match = re.search(r'"est_delta_bps":\s*(-?\d+)', rec_obj)
+                        why_match = re.search(r'"why":\s*"([^"]*)"', rec_obj)
+                        
+                        if title_match and action_match:
+                            recommendations.append({
+                                "title": title_match.group(1),
+                                "action": action_match.group(1),
+                                "est_delta_bps": int(delta_match.group(1)) if delta_match else 0,
+                                "why": why_match.group(1) if why_match else ""
+                            })
                 
                 data = {
                     "headline": headline_match.group(1) if headline_match else "Unable to parse headline",
-                    "drivers": drivers_match[:3] if drivers_match else ["Unable to parse drivers"],
-                    "takeaway": "Check the debug section for parsing issues",
-                    "recommendations": []
+                    "drivers": drivers if drivers else ["Unable to parse drivers"],
+                    "takeaway": takeaway_match.group(1) if takeaway_match else "Check the debug section for parsing issues",
+                    "recommendations": recommendations if recommendations else []
                 }
-            except:
+                
+                # Show what we extracted in debug
+                with st.expander("🔧 Debug: Extracted Content"):
+                    st.json(data)
+                    
+            except Exception as extract_err:
+                st.error(f"Content extraction failed: {extract_err}")
                 raise json_err
         
         # minimal schema hardening
