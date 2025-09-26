@@ -72,7 +72,7 @@ def inject_brand_css() -> None:
     --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520;
   }
   html, body, .stApp { background:#f7f8fb; color:#0b0c0c; font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif !important; }
-  .block-container { padding-top: 1.2rem; padding-bottom: 4rem; }
+  .block-container { padding-top: 3.5rem; padding-bottom: 4rem; }
 
   /* Header */
   .rb-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
@@ -754,8 +754,11 @@ def plot_headline_compact(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_
     return fig, df
 
 def plot_dumbbell_duration_by_ccy(krd_fund, krd_index):
-    tot_f, tot_i = krd_fund.sum(axis=1), krd_index.sum(axis=1)
-    df = pd.DataFrame({"Currency":tot_f.index,"Fund":tot_f.values,"Index":tot_i.reindex(tot_f.index).fillna(0).values})
+    # Use union of all currencies from both Fund and Index
+    all_currencies = sorted(set(krd_fund.index).union(set(krd_index.index)))
+    tot_f = krd_fund.sum(axis=1).reindex(all_currencies).fillna(0.0)
+    tot_i = krd_index.sum(axis=1).reindex(all_currencies).fillna(0.0)
+    df = pd.DataFrame({"Currency":all_currencies,"Fund":tot_f.values,"Index":tot_i.values})
     df["Delta"] = df["Fund"]-df["Index"]
     df = df.sort_values("Delta",key=lambda s: s.abs(),ascending=True)
 
@@ -768,7 +771,10 @@ def plot_dumbbell_duration_by_ccy(krd_fund, krd_index):
     return fig, df
 
 def plot_duration_diff_by_ccy(krd_fund, krd_index):
-    tot_f, tot_i = krd_fund.sum(axis=1), krd_index.sum(axis=1)
+    # Use union of all currencies from both Fund and Index
+    all_currencies = sorted(set(krd_fund.index).union(set(krd_index.index)))
+    tot_f = krd_fund.sum(axis=1).reindex(all_currencies).fillna(0.0)
+    tot_i = krd_index.sum(axis=1).reindex(all_currencies).fillna(0.0)
     diff = (tot_f - tot_i).sort_values(key=lambda s: s.abs(),ascending=True)
     fig = go.Figure(go.Bar(x=diff.values,y=diff.index,orientation="h",
         marker_color=[RB_COLORS["blue"] if v>0 else RB_COLORS["orange"] for v in diff.values]))
@@ -796,13 +802,16 @@ def plot_krd_node_diff(krd_fund, krd_index):
 
 def plot_risk_carry_map(fund_slice,index_slice,krd_fund,krd_index):
     try:
-        krd_tot = krd_fund.sum(axis=1)
+        # Use union of all currencies from both Fund and Index
+        all_currencies = sorted(set(krd_fund.index).union(set(krd_index.index)))
+        krd_tot_f = krd_fund.sum(axis=1).reindex(all_currencies).fillna(0.0)
+        krd_tot_i = krd_index.sum(axis=1).reindex(all_currencies).fillna(0.0)
         carry_contr = fund_slice.groupby("Currency_u")["Hedged Yield Contr"].sum()*100
-        diff = krd_tot - krd_index.sum(axis=1).reindex(krd_tot.index).fillna(0)
+        diff = krd_tot_f - krd_tot_i
         fig = go.Figure()
-        for c in krd_tot.index:
+        for c in all_currencies:
             fig.add_trace(go.Scatter(
-                x=[krd_tot[c]],y=[carry_contr.get(c,0)],mode="markers",name=c,
+                x=[krd_tot_f[c]],y=[carry_contr.get(c,0)],mode="markers",name=c,
                 marker=dict(size=8+abs(diff[c])*4,
                             color=RB_COLORS["blue"] if diff[c]>0 else RB_COLORS["orange"])
             ))
@@ -813,7 +822,11 @@ def plot_risk_carry_map(fund_slice,index_slice,krd_fund,krd_index):
 
 def render_positioning_bullets(krd_fund,krd_index,fund_slice,index_slice,ogc_bps_f):
     lines=[]
-    diff_ccy=(krd_fund.sum(axis=1)-krd_index.sum(axis=1)).sort_values(key=lambda s:s.abs(),ascending=False)
+    # Use union of all currencies from both Fund and Index
+    all_currencies = sorted(set(krd_fund.index).union(set(krd_index.index)))
+    tot_f = krd_fund.sum(axis=1).reindex(all_currencies).fillna(0.0)
+    tot_i = krd_index.sum(axis=1).reindex(all_currencies).fillna(0.0)
+    diff_ccy=(tot_f - tot_i).sort_values(key=lambda s:s.abs(),ascending=False)
     top_over=diff_ccy[diff_ccy>0].head(3)
     top_under=diff_ccy[diff_ccy<0].head(2)
     for c,v in top_over.items():
@@ -897,9 +910,11 @@ def plot_duration_by_currency_bars(krd_fund: pd.DataFrame, krd_index: pd.DataFra
     Grouped vertical columns: Fund vs Index total duration (sum of KRD across nodes) per currency.
     Sorted by absolute Fund−Index delta (top N currencies first if many).
     """
-    tot_f = krd_fund.sum(axis=1)
-    tot_i = krd_index.sum(axis=1).reindex(tot_f.index).fillna(0.0)
-    df = pd.DataFrame({"Currency": tot_f.index, "Fund": tot_f.values, "Index": tot_i.values})
+    # Use union of all currencies from both Fund and Index
+    all_currencies = sorted(set(krd_fund.index).union(set(krd_index.index)))
+    tot_f = krd_fund.sum(axis=1).reindex(all_currencies).fillna(0.0)
+    tot_i = krd_index.sum(axis=1).reindex(all_currencies).fillna(0.0)
+    df = pd.DataFrame({"Currency": all_currencies, "Fund": tot_f.values, "Index": tot_i.values})
     df["Delta"] = df["Fund"] - df["Index"]
     # Keep only meaningful currencies (already filtered for Total/Other upstream)
     df = df.sort_values("Delta", key=lambda s: s.abs(), ascending=False)
@@ -1923,6 +1938,27 @@ with tab_pos:
                 mime="text/csv",
             )
 
+    # ================================ Methodology ================================
+    
+    with st.expander("Methodology (12‑month horizon)"):
+        st.markdown(
+            textwrap.dedent(
+                """
+                **Method summary**
+                - **Carry (bps)** = 100 × Σ `Combined 2!Hedged Yield Contr` (per currency; excludes Total/Other).
+                  (Reconciles to `Combined 2!Hedged Yield` on `Currency="Total"`.)
+                - **Roll‑down** = 0 (v1 placeholder).
+                - **OGC (bps)** from `OGC!OGC` mapped by fund.
+                - **Credit P&L (bps)**: canonical `spread_move_pct` = − `Scenarios!Credit Spread Change %` so **+ = widening**.
+                  Formula: `− DTS_total × spread_move_pct × 100` (DTS from `Currency="Total"` row per entity).
+                - **Rates P&L (bps)**: for each currency/node, `− KRD × Δy_bp`; sum across nodes and currencies.
+                  KRD nodes: 6m, 2y, 5y, 10y, 20y, 30y from `Combined 2`.
+                  Rate shocks per currency/node from `Scenarios`.
+                - **ETR (bps)** = Carry − OGC + Credit + Rates. **Relative** = Fund − Index.
+                """
+            )
+        )
+
 # --- Tab: Scenario Analysis (12-month) ---
 with tab_scn:
     # Status pills
@@ -2090,26 +2126,6 @@ with tab_ins:
                 f"*Why*: {r.get('why','')}"
             )
 
-# ================================ Footer / Tooltips ================================
-
-with st.expander("Methodology (12‑month horizon)"):
-    st.markdown(
-        textwrap.dedent(
-            """
-            **Method summary**
-            - **Carry (bps)** = 100 × Σ `Combined 2!Hedged Yield Contr` (per currency; excludes Total/Other).
-              (Reconciles to `Combined 2!Hedged Yield` on `Currency="Total"`.)
-            - **Roll‑down** = 0 (v1 placeholder).
-            - **OGC (bps)** from `OGC!OGC` mapped by fund.
-            - **Credit P&L (bps)**: canonical `spread_move_pct` = − `Scenarios!Credit Spread Change %` so **+ = widening**.
-              Formula: `− DTS_total × spread_move_pct × 100` (DTS from `Currency="Total"` row per entity).
-            - **Rates P&L (bps)**: for each currency/node, `− KRD × Δy_bp`; sum across nodes and currencies.
-              KRD nodes: 6m, 2y, 5y, 10y, 20y, 30y from `Combined 2`.
-              Rate shocks per currency/node from `Scenarios`.
-            - **ETR (bps)** = Carry − OGC + Credit + Rates. **Relative** = Fund − Index.
-            """
-        )
-    )
 
 # ================================ Robustness: Validation Warnings ================================
 
