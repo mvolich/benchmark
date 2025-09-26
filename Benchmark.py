@@ -1145,7 +1145,17 @@ def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.Da
     }
 
 def generate_genai_insights(payload: dict) -> dict:
-    """Call OpenAI API with grounded payload and return parsed JSON (summary + 3 recs)."""
+    """
+    Call OpenAI with a strict, sectioned schema:
+      - headline: str (single line)
+      - drivers: list[str] (exactly 3 short bullets)
+      - takeaway: str (single sentence)
+      - recommendations: list[ {title, action, est_delta_bps, why} ] (exactly 3)
+    Rules:
+      * Use only numbers in payload.
+      * Be benchmark-aware and scenario-aware.
+      * NEVER suggest changing OGC/fees; OGC is fixed and not a lever.
+    """
     try:
         openai.api_key = st.secrets["openai"]["OPENAI_API_KEY"]
         system_msg = {
@@ -1153,41 +1163,57 @@ def generate_genai_insights(payload: dict) -> dict:
             "content": (
                 "You are a fixed-income portfolio assistant for fund vs benchmark analysis.\n"
                 "Ground rules:\n"
-                "1) Only use numbers in the provided JSON payload; do NOT invent figures.\n"
-                "2) Respect sign logic: credit 'widening' hurts when DTS>0; rate rises hurt when KRD>0.\n"
-                "3) If the Fund outperforms because it is UNDERWEIGHT a risk that is harmful in this scenario "
-                "(e.g., credit underweight in a widening environment), do NOT recommend adding that risk; recommend maintaining or further trimming.\n"
-                "4) All recommendations must be benchmark-aware and scenario-aware; quantify estimated impact in bps using provided contributions/deltas.\n"
-                "5) Do not contradict positioning deltas (e.g., do not suggest 'increase credit' if credit underweight is the source of the relative gain under widening).\n"
+                "1) Use ONLY the JSON numbers provided; do NOT invent or fetch anything else.\n"
+                "2) Respect sign logic: credit 'widening' hurts when DTS>0; higher yields hurt when KRD>0.\n"
+                "3) If the Fund outperforms because it is UNDERWEIGHT a harmful risk in this scenario "
+                "(e.g., credit underweight in a widening environment), do NOT recommend adding that risk; "
+                "recommend maintaining or trimming.\n"
+                "4) Recommendations MUST be benchmark-aware and scenario-aware (quote bps impacts where possible).\n"
+                "5) DO NOT recommend changing OGC/fees or any fee optimisation. OGC is fixed and not a lever.\n"
                 "Respond ONLY with valid JSON using keys:\n"
-                "  summary_bullets: list[str] (max 4 items)\n"
-                "  recommendations: list[ {title, action, est_delta_bps, why} ] (exactly 3 items)\n"
+                "  headline: str (one line)\n"
+                "  drivers: list[str] (exactly 3 bullets; concise, quantified where possible)\n"
+                "  takeaway: str (one sentence; strategic)\n"
+                "  recommendations: list[ {title, action, est_delta_bps, why} ] (exactly 3)\n"
             )
         }
-        user_msg = {
-            "role": "user",
-            "content": json.dumps(payload)
-        }
+        user_msg = {"role": "user", "content": json.dumps(payload)}
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[system_msg, user_msg],
-            max_tokens=700,
+            max_tokens=900,
             temperature=0.2,
         )
         txt = resp.choices[0].message["content"].strip()
         if txt.startswith("```json"): txt = txt[7:]
         if txt.endswith("```"): txt = txt[:-3]
         data = json.loads(txt)
+        # minimal schema hardening
+        data.setdefault("headline", "")
+        data.setdefault("drivers", [])
+        data.setdefault("takeaway", "")
+        data.setdefault("recommendations", [])
         return data
     except Exception as e:
-        return {"summary_bullets": [f"⚠️ AI error: {str(e)}"], "recommendations": []}
+        return {
+            "headline": "⚠️ AI error",
+            "drivers": [str(e)],
+            "takeaway": "",
+            "recommendations": []
+        }
 
 def vet_recommendations(payload: dict, ai: dict) -> dict:
-    """Reject or rewrite recs that violate scenario/positioning logic (e.g., add credit in widening while underweight drives outperformance)."""
+    """
+    Reject/rewrite recs that violate domain logic:
+      - No 'increase credit' when credit_env = widening AND fund is underweight credit AND that underweight drives relative gains.
+      - No OGC/fee changes (forbidden). Remove such recs and replace with a scenario-consistent one if needed.
+    """
     try:
         recs = ai.get("recommendations", [])
-        if not recs: return ai
-        credit_env = payload["scenario_meta"].get("credit_environment","no_change")
+        if not recs:
+            return ai
+
+        credit_env = payload.get("scenario_meta", {}).get("credit_environment", "no_change")
         credit_delta = float(payload["relative"]["credit_bps"])  # Fund minus Benchmark
         dts_f = float(payload["positioning"]["dts_fund"])
         dts_b = float(payload["positioning"]["dts_benchmark"])
@@ -1195,23 +1221,40 @@ def vet_recommendations(payload: dict, ai: dict) -> dict:
 
         fixed = []
         for r in recs:
-            title = (r.get("title") or "").lower()
-            action = (r.get("action") or "").lower()
-            bad_credit_add = (
-                ("credit" in title or "credit" in action) and
-                ("increase" in title or "increase" in action or "add" in title or "add" in action) and
-                credit_env == "widening" and credit_underweight and credit_delta > 0
-            )
+            t = (r.get("title") or "").lower()
+            a = (r.get("action") or "").lower()
+            why = (r.get("why") or "").lower()
+
+            mentions_credit = ("credit" in t) or ("credit" in a) or ("credit" in why)
+            increase_verbs = any(k in t or k in a for k in ["increase", "add", "raise", "boost"])
+            mentions_ogc_or_fee = any(k in t or k in a or k in why for k in ["ogc", "fee", "fees", "charges"])
+
+            # Block contradictory "increase credit" case in widening when underweight is source of advantage
+            bad_credit_add = mentions_credit and increase_verbs and credit_env == "widening" and credit_underweight and credit_delta > 0
+
+            if mentions_ogc_or_fee:
+                # Drop fee/OGC ideas entirely
+                continue
+
             if bad_credit_add:
-                # Rewrite: maintain/trim credit underweight instead of increase
                 r = {
-                    "title": "Maintain or Trim Credit Exposure (avoid eroding relative advantage)",
-                    "action": "Maintain current credit underweight or trim modestly; the Fund's relative gain comes from lower DTS under widening spreads.",
+                    "title": "Maintain Defensive Credit Stance",
+                    "action": "Maintain or trim credit exposure modestly; relative advantage stems from lower DTS in widening spreads.",
                     "est_delta_bps": 0,
-                    "why": "Under a widening credit environment, lower DTS reduces losses vs the benchmark; adding credit would reduce this advantage."
+                    "why": "Adding credit here would erode the Fund's scenario advantage vs the benchmark."
                 }
+
             fixed.append(r)
-        ai["recommendations"] = fixed
+
+        # Keep exactly three items if possible (pad with neutral guidance if AI returned fewer)
+        while len(fixed) < 3:
+            fixed.append({
+                "title": "No additional tactical change",
+                "action": "Reassess exposures after market confirms scenario path.",
+                "est_delta_bps": 0,
+                "why": "Avoid over-adjusting on a single scenario realisation."
+            })
+        ai["recommendations"] = fixed[:3]
         return ai
     except Exception:
         return ai
@@ -1869,21 +1912,27 @@ with tab_ins:
         ogc_bps_f = float(inputs.ogc_map_bps.get(fund_code, 0.0))
         payload = build_genai_payload(sel, drilldown, scn_id, krd_fund, krd_index, ogc_bps_f)
         result = generate_genai_insights(payload)
-        result = vet_recommendations(payload, result)  # <- apply domain guardrail
+        result = vet_recommendations(payload, result)
 
-        st.markdown("### Summary")
-        for b in result.get("summary_bullets", []):
-            st.markdown(f"- {b}")
+        # Sectioned output
+        st.markdown("### Headline")
+        st.markdown(result.get("headline", ""))
 
-        recs = result.get("recommendations", [])
-        if recs:
-            st.markdown("### Recommendations")
-            for r in recs:
-                st.markdown(
-                    f"**{r.get('title','')}** — {r.get('action','')}  \n"
-                    f"*Est. impact*: {r.get('est_delta_bps','?')} bps  \n"
-                    f"*Why*: {r.get('why','')}"
-                )
+        st.markdown("### Key Drivers")
+        drivers = result.get("drivers", [])
+        for d in drivers:
+            st.markdown(f"- {d}")
+
+        st.markdown("### Strategic Takeaway")
+        st.markdown(result.get("takeaway", ""))
+
+        st.markdown("### Recommendations")
+        for r in result.get("recommendations", []):
+            st.markdown(
+                f"**{r.get('title','')}** — {r.get('action','')}  \n"
+                f"*Est. impact*: {r.get('est_delta_bps','?')} bps  \n"
+                f"*Why*: {r.get('why','')}"
+            )
 
 # ================================ Footer / Tooltips ================================
 
