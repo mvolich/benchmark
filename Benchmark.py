@@ -612,7 +612,22 @@ def compute_all_scenarios(inputs: Inputs, fund_code: str) -> Tuple[pd.DataFrame,
             rel_etr_bps=rel
         ))
 
-        drilldown[sid] = {"rates_contrib_fund": rtab_f, "rates_contrib_idx": rtab_i, "spread_pct": spread_pct}
+        # Derive rates meta from scenario shocks (not Fund P&L)
+        srows = inputs.scenarios.loc[inputs.scenarios["Scenario"] == sid]
+        if not srows.empty:
+            cols = ["6m","2yr","5 yr","10 yr","20 yr","30 yr"]
+            avg = srows[cols].mean(numeric_only=True)
+            parallel = float(avg.mean())
+            rates_bias = "bull (yields down)" if parallel < -1e-9 else ("bear (yields up)" if parallel > 1e-9 else "neutral")
+            short = float(avg.get("2yr", avg.get("2y", avg.get("6m",0.0))))
+            long = float(avg.get("30 yr", avg.get("30y", avg.get("20 yr",0.0))))
+            twist = long - short
+            curve_shape = "steepening" if twist>1e-9 else ("flattening" if twist<-1e-9 else "flat")
+            rates_meta = {"rates_bias": rates_bias, "curve_shape": curve_shape}
+        else:
+            rates_meta = {"rates_bias": "neutral", "curve_shape": "flat"}
+
+        drilldown[sid] = {"rates_contrib_fund": rtab_f, "rates_contrib_idx": rtab_i, "spread_pct": spread_pct, "rates_meta": rates_meta}
 
     results_df = pd.DataFrame([r.__dict__ for r in results])
     # Attach carry/OGC verification flags in the same df (useful for insights)
@@ -1134,6 +1149,12 @@ def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.Da
 
     rates_tbl = drilldown[scn_id]["rates_contrib_fund"].to_dict(orient="records")
 
+    headline = (
+        f"Fund {('outperforms' if relative['total_bps']>0 else 'underperforms')} "
+        f"Benchmark by {relative['total_bps']:+.0f} bps "
+        f"(Fund {fund['total_bps']:+.0f} bps vs Benchmark {benchmark['total_bps']:+.0f} bps)."
+    )
+
     return {
         "scenario": {"id": int(sel_row["scenario_id"]), "name": sel_row["scenario_name"]},
         "scenario_meta": scenario_meta,
@@ -1141,7 +1162,9 @@ def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.Da
         "benchmark": benchmark,
         "relative": relative,
         "positioning": positioning,
-        "rates_drilldown": rates_tbl
+        "rates_drilldown": rates_tbl,
+        "rates_meta": drilldown[scn_id].get("rates_meta",{}),
+        "headline": headline
     }
 
 def generate_genai_insights(payload: dict) -> dict:
@@ -1254,6 +1277,7 @@ def vet_recommendations(payload: dict, ai: dict) -> dict:
         dts_f = float(payload["positioning"]["dts_fund"])
         dts_b = float(payload["positioning"]["dts_benchmark"])
         credit_underweight = dts_f < dts_b - 1e-9
+        credit_overweight = dts_f > dts_b + 1e-9
 
         fixed = []
         for r in recs:
@@ -1278,6 +1302,22 @@ def vet_recommendations(payload: dict, ai: dict) -> dict:
                     "action": "Maintain or trim credit exposure modestly; relative advantage stems from lower DTS in widening spreads.",
                     "est_delta_bps": 0,
                     "why": "Adding credit here would erode the Fund's scenario advantage vs the benchmark."
+                }
+            
+            # Positive tightening rule
+            elif credit_env == "tightening" and credit_underweight:
+                r = {
+                    "title": "Increase Credit Exposure",
+                    "action": "Add credit exposure toward benchmark; tightening spreads are supportive.",
+                    "est_delta_bps": int((dts_b-dts_f) * abs(payload['scenario_meta']['spread_move_pct'])*100),
+                    "why": "Fund is underweight credit while spreads tighten; adding credit closes the gap."
+                }
+            elif credit_env == "tightening" and credit_overweight:
+                r = {
+                    "title": "Maintain or Lighten Credit Slightly",
+                    "action": "Benchmark already has more credit; avoid overexposure even in tightening.",
+                    "est_delta_bps": 0,
+                    "why": "Fund is already overweight credit relative to benchmark; risk control remains important."
                 }
 
             fixed.append(r)
@@ -1952,7 +1992,7 @@ with tab_ins:
 
         # Sectioned output
         st.markdown("### Headline")
-        st.markdown(result.get("headline", ""))
+        st.markdown(payload.get("headline", ""))
 
         st.markdown("### Key Drivers")
         drivers = result.get("drivers", [])
