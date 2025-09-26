@@ -60,6 +60,7 @@ BRAND_TEMPLATE = go.layout.Template(
 pio.templates["rubrics"] = BRAND_TEMPLATE
 pio.templates.default = "rubrics"
 PLOTLY_CONFIG = {"displaylogo": False, "responsive": True}
+PLOT_HEIGHT = 380
 
 def inject_brand_css() -> None:
     st.markdown(
@@ -572,11 +573,8 @@ def compute_all_scenarios(inputs: Inputs, fund_code: str) -> Tuple[pd.DataFrame,
     # Carry (bps)
     c_f = carry_bps(f_fund)
     c_i = carry_bps(f_idx)
-    # OGC (bps)
+    # OGC is deducted for Fund only; Benchmark OGC = 0 by design.
     ogc_f = float(inputs.ogc_map_bps.get(fund_code, 0.0))
-    ogc_i = ogc_f  # index isn't charged fees, but spec says "deduct OGC in all expected-return metrics" -> apply to Fund only?
-    # Clarification in spec: OGC deducted in ALL expected-return metrics, but for Index we still deduct the fund's OGC for relative?
-    # We'll compute OGC for Fund only (industry norm). For relative, OGC affects only Fund. If you want both, set ogc_i=ogc_f.
 
     results = []
     drilldown = {}
@@ -660,12 +658,12 @@ def heatmap_krd_diff(krd_f: pd.DataFrame, krd_i: pd.DataFrame, title: str):
                 [0.5, RB_COLORS["grey"]],
                 [1.0, RB_COLORS["blue"]],
             ],
-            colorbar=dict(title=dict(text="ΔKRD", side="right")),
-            hovertemplate="Currency=%{y}<br>Node=%{x}<br>Fund-Index=%{z:.2f}<extra></extra>",
+            colorbar=dict(title=dict(text="ΔKRD (yrs / 100bp)", side="right")),
+            hovertemplate="Currency=%{y}<br>Maturity=%{x}<br>Fund−Benchmark=%{z:.2f}<extra></extra>",
             zmid=0.0,
         )
     )
-    fig.update_layout(title=title, height=380)
+    fig.update_layout(title=title, height=PLOT_HEIGHT)
     return fig, diff
 
 def heatmap_krd_diff_rg(krd_f: pd.DataFrame, krd_i: pd.DataFrame, title: str):
@@ -685,8 +683,8 @@ def heatmap_krd_diff_rg(krd_f: pd.DataFrame, krd_i: pd.DataFrame, title: str):
     ]
     fig = go.Figure(go.Heatmap(
         z=diff.values, x=NODES_ORDER, y=diff.index, zmid=0.0,
-        colorscale=colors, colorbar=dict(title="ΔKRD"),
-        hovertemplate="Currency=%{y}<br>Node=%{x}<br>Fund-Index=%{z:.2f}<extra></extra>"
+        colorscale=colors, colorbar=dict(title="ΔKRD (yrs / 100bp)"),
+        hovertemplate="Currency=%{y}<br>Maturity=%{x}<br>Fund−Benchmark=%{z:.2f}<extra></extra>"
     ))
     fig.update_layout(title=title, height=PLOT_HEIGHT, margin=dict(l=10, r=10, t=40, b=40))
     return fig, diff
@@ -709,7 +707,7 @@ def waterfall_contrib(carry_bps_val, ogc_bps_val, credit_bps_val, rates_bps_val,
         increasing={"marker": {"color": RB_COLORS["med"]}},
         totals={"marker": {"color": RB_COLORS["blue"]}},
     ))
-    fig.update_layout(title=title, height=350)
+    fig.update_layout(title=title, height=PLOT_HEIGHT)
     return fig
 
 def plot_headline_compact(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_f):
@@ -720,8 +718,8 @@ def plot_headline_compact(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_
     net_carry_f = carry_f - float(ogc_bps_f)
 
     rows = [
-        ("Total KRD (yrs/100bp)", tot_krd_f, tot_krd_i),
-        ("Total DTS (yrs·spread)", dts_f,     dts_i),
+        ("Total KRD (yrs / 100bp)", tot_krd_f, tot_krd_i),
+        ("Total DTS",              dts_f,     dts_i),
         ("Carry (bps)",            carry_f,   carry_i),
         ("OGC (bps)",              float(ogc_bps_f), 0.0),
     ]
@@ -730,8 +728,8 @@ def plot_headline_compact(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_
 
     # Horizontal grouped bars + delta labels
     fig = go.Figure()
-    fig.add_bar(y=df["Metric"], x=df["Fund"], name="Fund",  orientation="h", marker_color=RB_COLORS["blue"])
-    fig.add_bar(y=df["Metric"], x=df["Index"], name="Index", orientation="h", marker_color=RB_COLORS["grey"])
+    fig.add_bar(y=df["Metric"], x=df["Fund"], name="Fund",      orientation="h", marker_color=RB_COLORS["blue"])
+    fig.add_bar(y=df["Metric"], x=df["Index"], name="Benchmark", orientation="h", marker_color=RB_COLORS["grey"])
     # Delta annotations (right side of bars)
     for i, r in df.iterrows():
         fig.add_annotation(
@@ -749,8 +747,8 @@ def plot_headline_compact(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_
         bgcolor="#F1F3F9", bordercolor=RB_COLORS["grey"], borderwidth=1, borderpad=4
     )
     fig.update_layout(
-        barmode="group", height=320,
-        title="Headline Metrics (Fund vs Index) with Deltas",
+        barmode="group", height=PLOT_HEIGHT,
+        title="Headline Metrics (Fund vs Benchmark) with Deltas",
         margin=dict(l=10, r=10, t=60, b=30), legend=dict(orientation="h", y=1.05, x=1, xanchor="right")
     )
     return fig, df
@@ -766,7 +764,7 @@ def plot_dumbbell_duration_by_ccy(krd_fund, krd_index):
     fig.add_trace(go.Scatter(x=df["Fund"],y=df["Currency"],mode="markers",name="Fund",marker=dict(color=RB_COLORS["blue"],size=8)))
     for _,row in df.iterrows():
         fig.add_shape(type="line",x0=row["Index"],x1=row["Fund"],y0=row["Currency"],y1=row["Currency"],line=dict(color=RB_COLORS["med"],width=2))
-    fig.update_layout(title="Duration by Currency (Fund vs Index)",height=400)
+    fig.update_layout(title="Duration by Currency (Fund vs Index)",height=PLOT_HEIGHT)
     return fig, df
 
 def plot_duration_diff_by_ccy(krd_fund, krd_index):
@@ -786,7 +784,7 @@ def plot_dumbbell_krd_by_node(krd_fund, krd_index):
     fig.add_trace(go.Scatter(x=df["Fund"],y=df["Node"],mode="markers",name="Fund",marker=dict(color=RB_COLORS["blue"],size=8)))
     for _,row in df.iterrows():
         fig.add_shape(type="line",x0=row["Index"],x1=row["Fund"],y0=row["Node"],y1=row["Node"],line=dict(color=RB_COLORS["med"],width=2))
-    fig.update_layout(title="KRD by Node (Fund vs Index)",height=350)
+    fig.update_layout(title="KRD by Node (Fund vs Index)",height=PLOT_HEIGHT)
     return fig,df
 
 def plot_krd_node_diff(krd_fund, krd_index):
@@ -865,14 +863,14 @@ def plot_krd_curve_bubbles(krd_fund: pd.DataFrame, krd_index: pd.DataFrame) -> g
         x=x, y=f_vals, mode="lines+markers", name="Fund",
         line=dict(color=RB_COLORS["blue"], width=2),
         marker=dict(size=sz_f, color=RB_COLORS["blue"], opacity=0.85),
-        hovertemplate="Node=%{customdata[0]}<br>KRD (Fund)=%{y:.2f} yrs/100bp<extra></extra>",
+        hovertemplate="Maturity=%{customdata[0]}<br>KRD (Fund)=%{y:.2f} yrs / 100bp<extra></extra>",
         customdata=np.array([[lbl] for lbl in x_labels])
     ))
     fig.add_trace(go.Scatter(
-        x=x, y=i_vals, mode="lines+markers", name="Index",
+        x=x, y=i_vals, mode="lines+markers", name="Benchmark",
         line=dict(color=RB_COLORS["grey"], width=2, dash="dot"),
         marker=dict(size=sz_i, color=RB_COLORS["grey"], opacity=0.8),
-        hovertemplate="Node=%{customdata[0]}<br>KRD (Index)=%{y:.2f} yrs/100bp<extra></extra>",
+        hovertemplate="Maturity=%{customdata[0]}<br>KRD (Benchmark)=%{y:.2f} yrs / 100bp<extra></extra>",
         customdata=np.array([[lbl] for lbl in x_labels])
     ))
 
@@ -907,8 +905,8 @@ def plot_duration_by_currency_bars(krd_fund: pd.DataFrame, krd_index: pd.DataFra
     df = df.sort_values("Delta", key=lambda s: s.abs(), ascending=False)
 
     fig = go.Figure()
-    fig.add_bar(name="Fund",  x=df["Currency"], y=df["Fund"], marker_color=RB_COLORS["blue"])
-    fig.add_bar(name="Index", x=df["Currency"], y=df["Index"], marker_color=RB_COLORS["grey"])
+    fig.add_bar(name="Fund",      x=df["Currency"], y=df["Fund"], marker_color=RB_COLORS["blue"])
+    fig.add_bar(name="Benchmark", x=df["Currency"], y=df["Index"], marker_color=RB_COLORS["grey"])
     fig.update_layout(
         barmode="group",
         title="Total Duration by Currency (Fund vs Benchmark)",
@@ -919,9 +917,6 @@ def plot_duration_by_currency_bars(krd_fund: pd.DataFrame, krd_index: pd.DataFra
     return fig, df
 
 # ================================ UX Helpers ================================
-
-# Chart height constant for consistency
-PLOT_HEIGHT = 380
 
 def stat_tile(label: str, value: float, suffix: str = "", emphasize: bool = True):
     val = f"{value:+.0f}{suffix}" if suffix else f"{value:+.2f}"
@@ -938,8 +933,8 @@ def stat_tile(label: str, value: float, suffix: str = "", emphasize: bool = True
 def compute_headline_stats(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_f):
     tot_dur_f = float(krd_fund.values.sum())           # yrs/100bp
     tot_dur_i = float(krd_index.values.sum())
-    dts_f     = float(dts_total(fund_slice))           # yrs·spread
-    dts_i     = float(dts_total(index_slice))
+    dts_f     = float(dts_total(fund_slice))           # unitless DTS
+    dts_i     = float(dts_total(index_slice))          # unitless DTS
     carry_f   = float(carry_bps(fund_slice))           # bps
     carry_i   = float(carry_bps(index_slice))
     net_carry = carry_f - float(ogc_bps_f)             # bps after OGC
@@ -1051,23 +1046,6 @@ def scenario_summary_block(sel_row: pd.Series):
         unsafe_allow_html=True
     )
 
-def _classify_rates_environment(srows: pd.DataFrame) -> dict:
-    """Classify the rates environment using scenario shocks: parallel/bull/bear & curve steepen/flatten."""
-    # srows contains per-currency columns: 6m, 2yr, 5 yr, 10 yr, 20 yr, 30 yr and spread_move_pct
-    cols = ["6m","2yr","5 yr","10 yr","20 yr","30 yr"]
-    if srows.empty:
-        return {"rates_bias": "neutral", "curve_shape": "flat", "notes": "no shocks provided"}
-    # Collapse across currencies: simple average bp change per node
-    avg = srows[cols].mean(numeric_only=True)
-    # Parallel bias (sign of average across nodes)
-    parallel = float(avg.mean())
-    rates_bias = "bull (yields down)" if parallel < -1e-9 else ("bear (yields up)" if parallel > 1e-9 else "neutral")
-    # Steep/flat: long minus short
-    short = float(avg.replace({"2yr":"2y"}).rename({"2yr":"2y"}).get("2yr", avg.get("2y", 0.0))) if "2yr" in avg.index or "2y" in avg.index else float(avg.get("6m", 0.0))
-    long  = float(avg.get("30 yr", avg.get("30y", avg.get("20 yr", 0.0))))
-    twist = long - short
-    curve_shape = "steepening" if twist > 1e-9 else ("flattening" if twist < -1e-9 else "flat")
-    return {"rates_bias": rates_bias, "curve_shape": curve_shape, "parallel_bp": parallel, "twist_bp": twist}
 
 def _krd_totals(krd_df: pd.DataFrame) -> dict:
     """Return totals by currency and by maturity for a KRD matrix (index=Currency, cols=NODES_ORDER)."""
@@ -1172,29 +1150,13 @@ def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.Da
     dts_b = float(sel_row.get("dts_index", 0.0))
     credit_weight_vs_bmk = "underweight" if dts_f < dts_b - 1e-9 else ("overweight" if dts_f > dts_b + 1e-9 else "neutral")
 
-    # Scenario meta (credit & rates)
-    # Recover the scenario rows for classification
-    # NOTE: inputs.scenarios is not accessible here; we pass drilldown and extract spread via sel_row? Keep simple:
-    # We can include drilldown spread pct from compute_all_scenarios stored at drilldown[scn_id]["spread_pct"]
+    # Scenario meta (credit only)
     sc_spread_pct = float(drilldown[scn_id].get("spread_pct", 0.0))
     credit_env = "widening" if sc_spread_pct > 1e-12 else ("tightening" if sc_spread_pct < -1e-12 else "no_change")
 
-    # We cannot access the full scenarios df here; provide rates meta off fund-rate drilldown aggregation:
-    # Rebuild a pseudo average short/long using drilldown table weights
-    rf = drilldown[scn_id]["rates_contrib_fund"].copy()
-    # We only need a coarse classification—use sign of total rates P&L and which maturities dominate:
-    short_mask = rf["Node"].isin(["6m","2y","5y"])
-    long_mask  = rf["Node"].isin(["10y","20y","30y"])
-    short_sum = float(rf.loc[short_mask, "bps"].sum())
-    long_sum  = float(rf.loc[long_mask,  "bps"].sum())
-    curve_shape = "steepening" if long_sum - short_sum > 1e-9 else ("flattening" if long_sum - short_sum < -1e-9 else "flat")
-    rates_bias = "helpful_to_fund" if float(sel_row["rates_bps_fund"]) > 0 else ("hurtful_to_fund" if float(sel_row["rates_bps_fund"]) < 0 else "neutral")
-
     scenario_meta = {
         "credit_environment": credit_env,
-        "spread_move_pct": sc_spread_pct,
-        "rates_bias_for_fund": rates_bias,
-        "curve_shape": curve_shape
+        "spread_move_pct": sc_spread_pct
     }
 
     positioning = {
@@ -1275,98 +1237,38 @@ def generate_genai_insights(payload: dict) -> dict:
         }
         user_msg = {"role": "user", "content": json.dumps(payload)}
         resp = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o-mini",
             messages=[system_msg, user_msg],
             max_tokens=800,
             temperature=0.1,
         )
         txt = resp.choices[0].message["content"].strip()
         
-        # Show raw response for debugging
         with st.expander("🔍 Debug: Raw AI Response"):
             st.code(txt, language="json")
-            st.caption(f"Response length: {len(txt)} characters")
-        
-        # Clean up common formatting issues
-        if txt.startswith("```json"):
-            txt = txt[7:]
-        if txt.endswith("```"):
-            txt = txt[:-3]
-        txt = txt.strip()
-        
-        # Additional cleaning for common AI formatting issues
-        # Fix common quote issues first
-        txt = txt.replace('"', '"').replace('"', '"').replace(''', "'").replace(''', "'")
-        
-        # Try to extract JSON from mixed content first
-        import re
-        json_match = re.search(r'\{.*\}', txt, re.DOTALL)
-        if json_match:
-            txt = json_match.group()
-        
-        # Clean up the extracted JSON
-        txt = txt.strip()
-        
-        # More aggressive JSON cleaning
-        # Remove trailing commas before closing brackets/braces
-        txt = re.sub(r',(\s*[}\]])', r'\1', txt)
-        
-        # Try to fix common quote escaping issues
-        # Replace smart quotes and fix basic unescaped quotes
-        txt = re.sub(r'([^\\])"([^",:}\]]*)"([^",:}\]]*)"', r'\1"\2\\\"\3"', txt)
-        
-        try:
-            data = json.loads(txt)
-        except json.JSONDecodeError as json_err:
-            # More sophisticated content extraction
-            try:
-                # Extract structured content with better regex patterns
-                headline_match = re.search(r'"headline":\s*"([^"]*(?:\\.[^"]*)*)"', txt)
-                
-                # Extract drivers array content
-                drivers_section = re.search(r'"drivers":\s*\[(.*?)\]', txt, re.DOTALL)
-                drivers = []
-                if drivers_section:
-                    driver_items = re.findall(r'"([^"]*(?:\\.[^"]*)*)"', drivers_section.group(1))
-                    drivers = driver_items[:3]  # Take first 3
-                
-                # Extract takeaway
-                takeaway_match = re.search(r'"takeaway":\s*"([^"]*(?:\\.[^"]*)*)"', txt)
-                
-                # Extract recommendations array
-                recs_section = re.search(r'"recommendations":\s*\[(.*?)\]', txt, re.DOTALL)
-                recommendations = []
-                if recs_section:
-                    # Try to extract individual recommendation objects
-                    rec_objects = re.findall(r'\{([^}]*)\}', recs_section.group(1))
-                    for rec_obj in rec_objects[:3]:  # Take first 3
-                        title_match = re.search(r'"title":\s*"([^"]*)"', rec_obj)
-                        action_match = re.search(r'"action":\s*"([^"]*)"', rec_obj)
-                        delta_match = re.search(r'"est_delta_bps":\s*(-?\d+)', rec_obj)
-                        why_match = re.search(r'"why":\s*"([^"]*)"', rec_obj)
-                        
-                        if title_match and action_match:
-                            recommendations.append({
-                                "title": title_match.group(1),
-                                "action": action_match.group(1),
-                                "est_delta_bps": int(delta_match.group(1)) if delta_match else 0,
-                                "why": why_match.group(1) if why_match else ""
-                            })
-                
-                data = {
-                    "headline": headline_match.group(1) if headline_match else "Unable to parse headline",
-                    "drivers": drivers if drivers else ["Unable to parse drivers"],
-                    "takeaway": takeaway_match.group(1) if takeaway_match else "Check the debug section for parsing issues",
-                    "recommendations": recommendations if recommendations else []
-                }
-                
-                # Show what we extracted in debug
-                with st.expander("🔧 Debug: Extracted Content"):
-                    st.json(data)
-                    
-            except Exception as extract_err:
-                st.error(f"Content extraction failed: {extract_err}")
-                raise json_err
+
+        # Strip code fences if present
+        if txt.strip().startswith("```"):
+            txt = txt.strip().strip("`")
+            parts = txt.split("\n", 1)
+            if len(parts) == 2 and parts[0].strip().lower().startswith("json"):
+                txt = parts[1].strip()
+
+        # Balanced-braces JSON extraction
+        def _extract_json_object(s: str) -> str | None:
+            depth, start = 0, None
+            for i, ch in enumerate(s):
+                if ch == "{":
+                    if depth == 0: start = i
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0 and start is not None:
+                        return s[start:i+1]
+            return None
+
+        blob = _extract_json_object(txt) or txt.strip()
+        data = json.loads(blob)
         
         # minimal schema hardening
         data.setdefault("headline", "")
@@ -1923,11 +1825,11 @@ with tab_pos:
 
         r2c1, r2c2, r2c3 = st.columns(3)
         with r2c1:
-            stat_tile_signed("Spread Sensitivity (DTS) — Fund", stats["dts_f"], unit="yrs·spread", dp=2)
+            stat_tile_signed("Spread Sensitivity (DTS) — Fund", stats["dts_f"], unit="", dp=2)
         with r2c2:
-            stat_tile_signed("Spread Sensitivity (DTS) — Benchmark", stats["dts_i"], unit="yrs·spread", dp=2, emphasize=False)
+            stat_tile_signed("Spread Sensitivity (DTS) — Benchmark", stats["dts_i"], unit="", dp=2, emphasize=False)
         with r2c3:
-            stat_tile_signed("DTS Δ (Fund − Benchmark)", stats["dts_d"], unit="yrs·spread", dp=2, color=delta_color(stats["dts_d"]))
+            stat_tile_signed("DTS Δ (Fund − Benchmark)", stats["dts_d"], unit="", dp=2, color=delta_color(stats["dts_d"]))
 
         st.caption("Return Metrics")
         r3c1, r3c2, r3c3 = st.columns(3)
