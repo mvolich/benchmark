@@ -1036,10 +1036,34 @@ def scenario_summary_block(sel_row: pd.Series):
         unsafe_allow_html=True
     )
 
+def _classify_rates_environment(srows: pd.DataFrame) -> dict:
+    """Classify the rates environment using scenario shocks: parallel/bull/bear & curve steepen/flatten."""
+    # srows contains per-currency columns: 6m, 2yr, 5 yr, 10 yr, 20 yr, 30 yr and spread_move_pct
+    cols = ["6m","2yr","5 yr","10 yr","20 yr","30 yr"]
+    if srows.empty:
+        return {"rates_bias": "neutral", "curve_shape": "flat", "notes": "no shocks provided"}
+    # Collapse across currencies: simple average bp change per node
+    avg = srows[cols].mean(numeric_only=True)
+    # Parallel bias (sign of average across nodes)
+    parallel = float(avg.mean())
+    rates_bias = "bull (yields down)" if parallel < -1e-9 else ("bear (yields up)" if parallel > 1e-9 else "neutral")
+    # Steep/flat: long minus short
+    short = float(avg.replace({"2yr":"2y"}).rename({"2yr":"2y"}).get("2yr", avg.get("2y", 0.0))) if "2yr" in avg.index or "2y" in avg.index else float(avg.get("6m", 0.0))
+    long  = float(avg.get("30 yr", avg.get("30y", avg.get("20 yr", 0.0))))
+    twist = long - short
+    curve_shape = "steepening" if twist > 1e-9 else ("flattening" if twist < -1e-9 else "flat")
+    return {"rates_bias": rates_bias, "curve_shape": curve_shape, "parallel_bp": parallel, "twist_bp": twist}
+
+def _krd_totals(krd_df: pd.DataFrame) -> dict:
+    """Return totals by currency and by maturity for a KRD matrix (index=Currency, cols=NODES_ORDER)."""
+    by_ccy = krd_df.sum(axis=1).astype(float).to_dict()
+    by_node = krd_df.sum(axis=0).astype(float).to_dict()
+    return {"by_currency": by_ccy, "by_maturity": by_node, "total": float(krd_df.values.sum())}
+
 def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.DataFrame]], scn_id: int,
                         krd_fund: pd.DataFrame, krd_index: pd.DataFrame, ogc_bps_f: float) -> dict:
-    """Assemble the key scenario & positioning metrics into a JSON-safe dict."""
-    # Totals
+    """Assemble full scenario & positioning context for grounded insights."""
+    # Totals (Fund / Benchmark / Relative)
     fund = {
         "total_bps": float(sel_row["etr_bps_fund"]),
         "carry_bps": float(sel_row["carry_bps_fund"]),
@@ -1061,63 +1085,136 @@ def build_genai_payload(sel_row: pd.Series, drilldown: Dict[int, Dict[str, pd.Da
         "rates_bps": fund["rates_bps"] - benchmark["rates_bps"],
         "ogc_bps": -fund["ogc_bps"],
     }
-    # Rates drilldown
+
+    # Positioning: KRD matrices and DTS totals (Fund vs Benchmark)
+    pos_f = _krd_totals(krd_fund)
+    pos_b = _krd_totals(krd_index)
+    dts_f = float(sel_row.get("dts_fund", 0.0))
+    dts_b = float(sel_row.get("dts_index", 0.0))
+    credit_weight_vs_bmk = "underweight" if dts_f < dts_b - 1e-9 else ("overweight" if dts_f > dts_b + 1e-9 else "neutral")
+
+    # Scenario meta (credit & rates)
+    # Recover the scenario rows for classification
+    # NOTE: inputs.scenarios is not accessible here; we pass drilldown and extract spread via sel_row? Keep simple:
+    # We can include drilldown spread pct from compute_all_scenarios stored at drilldown[scn_id]["spread_pct"]
+    sc_spread_pct = float(drilldown[scn_id].get("spread_pct", 0.0))
+    credit_env = "widening" if sc_spread_pct > 1e-12 else ("tightening" if sc_spread_pct < -1e-12 else "no_change")
+
+    # We cannot access the full scenarios df here; provide rates meta off fund-rate drilldown aggregation:
+    # Rebuild a pseudo average short/long using drilldown table weights
+    rf = drilldown[scn_id]["rates_contrib_fund"].copy()
+    # We only need a coarse classification—use sign of total rates P&L and which maturities dominate:
+    short_mask = rf["Node"].isin(["6m","2y","5y"])
+    long_mask  = rf["Node"].isin(["10y","20y","30y"])
+    short_sum = float(rf.loc[short_mask, "bps"].sum())
+    long_sum  = float(rf.loc[long_mask,  "bps"].sum())
+    curve_shape = "steepening" if long_sum - short_sum > 1e-9 else ("flattening" if long_sum - short_sum < -1e-9 else "flat")
+    rates_bias = "helpful_to_fund" if float(sel_row["rates_bps_fund"]) > 0 else ("hurtful_to_fund" if float(sel_row["rates_bps_fund"]) < 0 else "neutral")
+
+    scenario_meta = {
+        "credit_environment": credit_env,
+        "spread_move_pct": sc_spread_pct,
+        "rates_bias_for_fund": rates_bias,
+        "curve_shape": curve_shape
+    }
+
+    positioning = {
+        "krd_fund": pos_f,
+        "krd_benchmark": pos_b,
+        "krd_delta": {
+            "by_currency": {k: pos_f["by_currency"].get(k,0.0) - pos_b["by_currency"].get(k,0.0) for k in set(list(pos_f["by_currency"].keys()) + list(pos_b["by_currency"].keys()))},
+            "by_maturity": {k: pos_f["by_maturity"].get(k,0.0) - pos_b["by_maturity"].get(k,0.0) for k in set(list(pos_f["by_maturity"].keys()) + list(pos_b["by_maturity"].keys()))},
+            "total": pos_f["total"] - pos_b["total"]
+        },
+        "dts_fund": dts_f,
+        "dts_benchmark": dts_b,
+        "credit_weight_vs_benchmark": credit_weight_vs_bmk,
+        "ogc_fund_bps": float(ogc_bps_f)
+    }
+
     rates_tbl = drilldown[scn_id]["rates_contrib_fund"].to_dict(orient="records")
+
     return {
         "scenario": {"id": int(sel_row["scenario_id"]), "name": sel_row["scenario_name"]},
+        "scenario_meta": scenario_meta,
         "fund": fund,
         "benchmark": benchmark,
         "relative": relative,
-        "rates_drilldown": rates_tbl,
-        "ogc": ogc_bps_f
+        "positioning": positioning,
+        "rates_drilldown": rates_tbl
     }
 
 def generate_genai_insights(payload: dict) -> dict:
-    """Call OpenAI API with structured payload and return parsed JSON."""
+    """Call OpenAI API with grounded payload and return parsed JSON (summary + 3 recs)."""
     try:
         openai.api_key = st.secrets["openai"]["OPENAI_API_KEY"]
         system_msg = {
             "role": "system",
             "content": (
-                "You are a fixed-income portfolio assistant. "
-                "Only use the structured JSON provided. "
-                "Do not invent numbers. Provide a short summary and exactly 3 recommendations. "
-                "Each recommendation must have: title, action, est_delta_bps, why. "
-                "Respond ONLY with valid JSON, no markdown formatting or extra text."
+                "You are a fixed-income portfolio assistant for fund vs benchmark analysis.\n"
+                "Ground rules:\n"
+                "1) Only use numbers in the provided JSON payload; do NOT invent figures.\n"
+                "2) Respect sign logic: credit 'widening' hurts when DTS>0; rate rises hurt when KRD>0.\n"
+                "3) If the Fund outperforms because it is UNDERWEIGHT a risk that is harmful in this scenario "
+                "(e.g., credit underweight in a widening environment), do NOT recommend adding that risk; recommend maintaining or further trimming.\n"
+                "4) All recommendations must be benchmark-aware and scenario-aware; quantify estimated impact in bps using provided contributions/deltas.\n"
+                "5) Do not contradict positioning deltas (e.g., do not suggest 'increase credit' if credit underweight is the source of the relative gain under widening).\n"
+                "Respond ONLY with valid JSON using keys:\n"
+                "  summary_bullets: list[str] (max 4 items)\n"
+                "  recommendations: list[ {title, action, est_delta_bps, why} ] (exactly 3 items)\n"
             )
         }
         user_msg = {
             "role": "user",
-            "content": f"Context:\n{json.dumps(payload)}\n\n"
-                       "Respond in JSON format with keys: summary_bullets (list of str), recommendations (list of dict)."
+            "content": json.dumps(payload)
         }
         resp = openai.ChatCompletion.create(
             model="gpt-4o-mini",
             messages=[system_msg, user_msg],
-            max_tokens=500,
-            temperature=0.3,
+            max_tokens=700,
+            temperature=0.2,
         )
         txt = resp.choices[0].message["content"].strip()
-        
-        # Clean up common formatting issues
-        if txt.startswith("```json"):
-            txt = txt[7:]
-        if txt.endswith("```"):
-            txt = txt[:-3]
-        txt = txt.strip()
-        
-        # Show raw response for debugging (in expander)
-        with st.expander("Debug: Raw AI Response"):
-            st.code(txt, language="json")
-        
+        if txt.startswith("```json"): txt = txt[7:]
+        if txt.endswith("```"): txt = txt[:-3]
         data = json.loads(txt)
         return data
-    except KeyError:
-        return {"summary_bullets": ["⚠️ OpenAI API key not found in secrets."], "recommendations": []}
-    except json.JSONDecodeError as e:
-        return {"summary_bullets": [f"⚠️ JSON parsing error: {str(e)}"], "recommendations": []}
     except Exception as e:
-        return {"summary_bullets": [f"⚠️ API error: {str(e)}"], "recommendations": []}
+        return {"summary_bullets": [f"⚠️ AI error: {str(e)}"], "recommendations": []}
+
+def vet_recommendations(payload: dict, ai: dict) -> dict:
+    """Reject or rewrite recs that violate scenario/positioning logic (e.g., add credit in widening while underweight drives outperformance)."""
+    try:
+        recs = ai.get("recommendations", [])
+        if not recs: return ai
+        credit_env = payload["scenario_meta"].get("credit_environment","no_change")
+        credit_delta = float(payload["relative"]["credit_bps"])  # Fund minus Benchmark
+        dts_f = float(payload["positioning"]["dts_fund"])
+        dts_b = float(payload["positioning"]["dts_benchmark"])
+        credit_underweight = dts_f < dts_b - 1e-9
+
+        fixed = []
+        for r in recs:
+            title = (r.get("title") or "").lower()
+            action = (r.get("action") or "").lower()
+            bad_credit_add = (
+                ("credit" in title or "credit" in action) and
+                ("increase" in title or "increase" in action or "add" in title or "add" in action) and
+                credit_env == "widening" and credit_underweight and credit_delta > 0
+            )
+            if bad_credit_add:
+                # Rewrite: maintain/trim credit underweight instead of increase
+                r = {
+                    "title": "Maintain or Trim Credit Exposure (avoid eroding relative advantage)",
+                    "action": "Maintain current credit underweight or trim modestly; the Fund's relative gain comes from lower DTS under widening spreads.",
+                    "est_delta_bps": 0,
+                    "why": "Under a widening credit environment, lower DTS reduces losses vs the benchmark; adding credit would reduce this advantage."
+                }
+            fixed.append(r)
+        ai["recommendations"] = fixed
+        return ai
+    except Exception:
+        return ai
 
 def attribution_tiles_row(label_prefix: str, carry: float, credit: float, rates: float, ogc: float, total: float, show_ogc_value=True):
     """Render a row of attribution tiles showing Carry, Credit, Rates, OGC, and Total (always 5 columns for alignment)."""
@@ -1772,6 +1869,7 @@ with tab_ins:
         ogc_bps_f = float(inputs.ogc_map_bps.get(fund_code, 0.0))
         payload = build_genai_payload(sel, drilldown, scn_id, krd_fund, krd_index, ogc_bps_f)
         result = generate_genai_insights(payload)
+        result = vet_recommendations(payload, result)  # <- apply domain guardrail
 
         st.markdown("### Summary")
         for b in result.get("summary_bullets", []):
