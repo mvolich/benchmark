@@ -1191,13 +1191,22 @@ def generate_genai_insights(payload: dict) -> dict:
                 "3) If the Fund outperforms because it is UNDERWEIGHT a harmful risk in this scenario "
                 "(e.g., credit underweight in a widening environment), do NOT recommend adding that risk; "
                 "recommend maintaining or trimming.\n"
-                "4) Recommendations MUST be benchmark-aware and scenario-aware (quote bps impacts where possible).\n"
-                "5) DO NOT recommend changing OGC/fees or any fee optimisation. OGC is fixed and not a lever.\n"
-                "Respond ONLY with valid JSON using keys:\n"
-                "  headline: str (one line)\n"
-                "  drivers: list[str] (exactly 3 bullets; concise, quantified where possible)\n"
-                "  takeaway: str (one sentence; strategic)\n"
-                "  recommendations: list[ {title, action, est_delta_bps, why} ] (exactly 3)\n"
+            "4) Recommendations MUST be benchmark-aware and scenario-aware (quote bps impacts where possible).\n"
+            "5) DO NOT recommend changing OGC/fees or any fee optimisation. OGC is fixed and not a lever.\n"
+            "6) CRITICAL: Respond with ONLY valid JSON. No markdown, no explanations, no code blocks.\n"
+            "7) Use double quotes for all strings. Escape any quotes inside strings with backslash.\n"
+            "8) No trailing commas. Ensure all brackets and braces are properly closed.\n"
+            "Required JSON structure:\n"
+            "{\n"
+            '  "headline": "string",\n'
+            '  "drivers": ["string1", "string2", "string3"],\n'
+            '  "takeaway": "string",\n'
+            '  "recommendations": [\n'
+            '    {"title": "string", "action": "string", "est_delta_bps": number, "why": "string"},\n'
+            '    {"title": "string", "action": "string", "est_delta_bps": number, "why": "string"},\n'
+            '    {"title": "string", "action": "string", "est_delta_bps": number, "why": "string"}\n'
+            "  ]\n"
+            "}\n"
             )
         }
         user_msg = {"role": "user", "content": json.dumps(payload)}
@@ -1221,23 +1230,40 @@ def generate_genai_insights(payload: dict) -> dict:
         txt = txt.strip()
         
         # Additional cleaning for common AI formatting issues
-        # Remove any leading/trailing whitespace and fix common JSON issues
-        txt = txt.replace('\n', ' ').replace('\r', '')
-        # Fix common quote issues
+        # Fix common quote issues first
         txt = txt.replace('"', '"').replace('"', '"').replace(''', "'").replace(''', "'")
+        
+        # Try to extract JSON from mixed content first
+        import re
+        json_match = re.search(r'\{.*\}', txt, re.DOTALL)
+        if json_match:
+            txt = json_match.group()
+        
+        # Clean up the extracted JSON
+        txt = txt.strip()
+        
+        # Fix common JSON formatting issues
+        # Remove trailing commas before closing brackets/braces
+        txt = re.sub(r',(\s*[}\]])', r'\1', txt)
+        # Fix unescaped quotes in strings (basic attempt)
+        txt = re.sub(r'(?<!\\)"([^"]*)"([^"]*)"([^"]*)"', r'"\1\"\2\"\3"', txt)
         
         try:
             data = json.loads(txt)
         except json.JSONDecodeError as json_err:
-            # Try to extract JSON from mixed content
-            import re
-            json_match = re.search(r'\{.*\}', txt, re.DOTALL)
-            if json_match:
-                try:
-                    data = json.loads(json_match.group())
-                except:
-                    raise json_err
-            else:
+            # Last resort: try to build a minimal valid structure
+            try:
+                # Extract any text that looks like it might be content
+                headline_match = re.search(r'"headline":\s*"([^"]*)"', txt)
+                drivers_match = re.findall(r'"([^"]*)"(?=\s*[,\]])', txt)
+                
+                data = {
+                    "headline": headline_match.group(1) if headline_match else "Unable to parse headline",
+                    "drivers": drivers_match[:3] if drivers_match else ["Unable to parse drivers"],
+                    "takeaway": "Check the debug section for parsing issues",
+                    "recommendations": []
+                }
+            except:
                 raise json_err
         
         # minimal schema hardening
