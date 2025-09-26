@@ -826,14 +826,14 @@ def plot_krd_diff_by_currency_and_maturity(krd_fund: pd.DataFrame, krd_index: pd
     # Create the grouped bar chart
     fig = go.Figure()
     
-    # Color palette for different maturities
+    # Color palette using Rubrics brand colors with tonal variations
     maturity_colors = {
-        "6m": "#1f77b4",   # Blue
-        "2y": "#ff7f0e",   # Orange  
-        "5y": "#2ca02c",   # Green
-        "10y": "#d62728",  # Red
-        "20y": "#9467bd",  # Purple
-        "30y": "#8c564b"   # Brown
+        "6m": RB_COLORS["blue"],    # #001E4F - Dark Blue (shortest maturity)
+        "2y": RB_COLORS["med"],     # #2C5697 - Medium Blue  
+        "5y": RB_COLORS["light"],   # #7BA4DB - Light Blue
+        "10y": RB_COLORS["orange"], # #CF4520 - Rubrics Orange (mid-point)
+        "20y": "#A0522D",           # Sienna (darker complement to orange)
+        "30y": "#8B4513"            # Saddle Brown (longest maturity)
     }
     
     # Add bars for each maturity
