@@ -1185,20 +1185,56 @@ def generate_genai_insights(payload: dict) -> dict:
             temperature=0.2,
         )
         txt = resp.choices[0].message["content"].strip()
-        if txt.startswith("```json"): txt = txt[7:]
-        if txt.endswith("```"): txt = txt[:-3]
-        data = json.loads(txt)
+        
+        # Show raw response for debugging
+        with st.expander("🔍 Debug: Raw AI Response"):
+            st.code(txt, language="json")
+        
+        # Clean up common formatting issues
+        if txt.startswith("```json"):
+            txt = txt[7:]
+        if txt.endswith("```"):
+            txt = txt[:-3]
+        txt = txt.strip()
+        
+        # Additional cleaning for common AI formatting issues
+        # Remove any leading/trailing whitespace and fix common JSON issues
+        txt = txt.replace('\n', ' ').replace('\r', '')
+        # Fix common quote issues
+        txt = txt.replace('"', '"').replace('"', '"').replace(''', "'").replace(''', "'")
+        
+        try:
+            data = json.loads(txt)
+        except json.JSONDecodeError as json_err:
+            # Try to extract JSON from mixed content
+            import re
+            json_match = re.search(r'\{.*\}', txt, re.DOTALL)
+            if json_match:
+                try:
+                    data = json.loads(json_match.group())
+                except:
+                    raise json_err
+            else:
+                raise json_err
+        
         # minimal schema hardening
         data.setdefault("headline", "")
         data.setdefault("drivers", [])
         data.setdefault("takeaway", "")
         data.setdefault("recommendations", [])
         return data
+    except json.JSONDecodeError as e:
+        return {
+            "headline": f"⚠️ JSON parsing error at position {e.pos}",
+            "drivers": [f"Raw response length: {len(txt) if 'txt' in locals() else 'unknown'}", f"Error: {str(e)}"],
+            "takeaway": "Check the debug section above for the raw AI response.",
+            "recommendations": []
+        }
     except Exception as e:
         return {
-            "headline": "⚠️ AI error",
+            "headline": f"⚠️ API error: {type(e).__name__}",
             "drivers": [str(e)],
-            "takeaway": "",
+            "takeaway": "Check your OpenAI API key and connection.",
             "recommendations": []
         }
 
