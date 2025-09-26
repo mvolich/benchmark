@@ -1214,14 +1214,16 @@ def generate_genai_insights(payload: dict) -> dict:
                 "Ground rules:\n"
                 "1) Use ONLY the JSON numbers provided; do NOT invent or fetch anything else.\n"
                 "2) Respect sign logic: credit 'widening' hurts when DTS>0; higher yields hurt when KRD>0.\n"
-                "3) If the Fund outperforms because it is UNDERWEIGHT a harmful risk in this scenario "
+                "3) CREDIT LOGIC: Underweight credit is BENEFICIAL in WIDENING environments (protects from spread widening). "
+                "Underweight credit is HARMFUL in TIGHTENING environments (misses spread tightening gains).\n"
+                "4) If the Fund outperforms because it is UNDERWEIGHT a harmful risk in this scenario "
                 "(e.g., credit underweight in a widening environment), do NOT recommend adding that risk; "
                 "recommend maintaining or trimming.\n"
-            "4) Recommendations MUST be benchmark-aware and scenario-aware (quote bps impacts where possible).\n"
-            "5) DO NOT recommend changing OGC/fees or any fee optimisation. OGC is fixed and not a lever.\n"
-            "6) CRITICAL: Respond with ONLY valid JSON. No markdown, no explanations, no code blocks.\n"
-            "7) Use double quotes for all strings. Escape any quotes inside strings with backslash.\n"
-            "8) No trailing commas. Ensure all brackets and braces are properly closed.\n"
+            "5) Recommendations MUST be benchmark-aware and scenario-aware (quote bps impacts where possible).\n"
+            "6) DO NOT recommend changing OGC/fees or any fee optimisation. OGC is fixed and not a lever.\n"
+            "7) CRITICAL: Respond with ONLY valid JSON. No markdown, no explanations, no code blocks.\n"
+            "8) Use double quotes for all strings. Escape any quotes inside strings with backslash.\n"
+            "9) No trailing commas. Ensure all brackets and braces are properly closed.\n"
             "Required JSON structure:\n"
             "{\n"
             '  "headline": "string",\n'
@@ -1305,8 +1307,11 @@ def vet_recommendations(payload: dict, ai: dict) -> dict:
     """
     Guardrails & polish:
       - Forbid any fee/OGC references.
-      - Collapse multiple 'increase credit' recs into ONE sized recommendation in tightening when underweight.
-      - Preserve widening underweight guardrail.
+      - Remove ALL AI-generated credit recommendations and replace with scenario-consistent logic:
+        * Widening + Underweight = Maintain (beneficial)
+        * Widening + Overweight = Reduce (harmful)
+        * Tightening + Underweight = Increase (harmful)
+        * Tightening + Overweight = Maintain (beneficial)
       - Ensure unique titles; if <3 items, add a rates governance rec.
     """
     try:
@@ -1334,40 +1339,51 @@ def vet_recommendations(payload: dict, ai: dict) -> dict:
                 continue
             filtered.append(r)
 
-        # 2) collapse all 'increase credit' variants; keep none for now (we might inject our own)
-        inc_credit_keys = []
+        # 2) collapse all credit-related variants; keep none for now (we might inject our own)
+        credit_keys = []
         keep = []
         for r in filtered:
             key = _norm_key((r.get("title") or "") + " " + (r.get("action") or ""))
-            if ("credit" in key) and any(w in key for w in ["increase","add","raise","boost"]):
-                inc_credit_keys.append(key)
+            if "credit" in key:
+                credit_keys.append(key)
                 continue
             keep.append(r)
 
         # 3) build scenario-consistent credit rec (if applicable)
         credit_rec = None
-        if credit_env == "widening" and credit_underweight and rel_credit > 0:
+        if credit_env == "widening" and credit_underweight:
+            # Underweight credit is BENEFICIAL in widening - maintain the advantage
             credit_rec = {
                 "title": "Maintain Defensive Credit Stance",
                 "action": "Maintain or trim credit; lower DTS protects relative returns while spreads widen.",
                 "est_delta_bps": 0,
-                "why": "Adding credit would erode the scenario advantage."
+                "why": "Underweight credit position is beneficial in widening environment - adding credit would erode the advantage."
+            }
+        elif credit_env == "widening" and credit_overweight:
+            # Overweight credit is HARMFUL in widening - reduce exposure
+            credit_rec = {
+                "title": "Reduce Credit Overweight",
+                "action": "Trim credit exposure to reduce vulnerability to spread widening.",
+                "est_delta_bps": 0,
+                "why": "Overweight credit is harmful when spreads widen; reducing exposure improves relative performance."
             }
         elif credit_env == "tightening" and credit_underweight:
+            # Underweight credit is HARMFUL in tightening - add exposure
             add_dts = 0.35 * dts_gap  # cap at 35% of gap
             est = int(add_dts * abs(spread_pct) * 100.0)  # linear DTS × %change × 100
             credit_rec = {
                 "title": "Increase Credit Exposure (toward benchmark)",
                 "action": f"Add ~{add_dts:.2f} DTS (≈35% of gap) to reduce underweight while spreads tighten.",
                 "est_delta_bps": est,
-                "why": "Tightening spreads support credit; measured add improves relative response without overshooting."
+                "why": "Underweight credit is harmful in tightening environment; measured add improves relative response."
             }
         elif credit_env == "tightening" and credit_overweight:
+            # Overweight credit is BENEFICIAL in tightening - maintain or add more cautiously
             credit_rec = {
-                "title": "Maintain or Lighten Credit Slightly",
-                "action": "Benchmark already carries more credit risk; avoid overexposure.",
+                "title": "Maintain Credit Overweight",
+                "action": "Keep current overweight; credit positioning benefits from spread tightening.",
                 "est_delta_bps": 0,
-                "why": "Keep dry powder while spreads tighten; avoid concentration risk."
+                "why": "Overweight credit is beneficial when spreads tighten; maintain advantageous positioning."
             }
 
         # 4) assemble out list: first add our credit rec (if any), then unique rest
