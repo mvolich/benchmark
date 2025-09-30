@@ -28,7 +28,7 @@ from typing import Dict, List, Tuple
 from decimal import Decimal, ROUND_HALF_UP
 
 import numpy as np
-import openai
+import os, openai
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -36,6 +36,23 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 # ================================ Branding & Theme ================================
+
+# ---- OpenAI key wiring (supports env or Streamlit secrets) ----
+def _resolve_openai_key():
+    # env first (works with Streamlit Cloud if you map secrets to env)
+    k = os.getenv("OPENAI_API_KEY")
+    if k: return k
+    # secrets.toml: support both styles
+    try:
+        sec = st.secrets.get("openai", {})
+        return sec.get("api_key") or sec.get("OPENAI_API_KEY")
+    except Exception:
+        return None
+
+_OPENAI_KEY = _resolve_openai_key()
+if _OPENAI_KEY:
+    openai.api_key = _OPENAI_KEY
+OPENAI_READY = bool(_OPENAI_KEY)
 
 RB_COLORS = {
     "blue":     "#001E4F",  # Dark Blue
@@ -120,15 +137,31 @@ def inject_brand_css() -> None:
   .stButton > button, .stDownloadButton > button { background-color:var(--rb-mblue); color:#fff; border:none; border-radius:4px; padding:8px 16px; font-weight:600; }
   .stButton > button:hover, .stDownloadButton > button:hover { background-color:var(--rb-blue); }
 
-  /* Metric/tiles — remove inner grey and unify card look */
+  /* ---- Flatten ALL remaining gradients / grey fills ---- */
+  *, *::before, *::after { background-image: none !important; }
+
+  /* Metrics: nuke inner grey bars/strips */
+  [data-testid="stMetric"], [data-testid="stMetric"] * {
+    background: transparent !important; background-color: transparent !important; box-shadow:none!important;
+  }
   [data-testid="stMetric"]{
-    background:var(--card-bg)!important;
-    border:1px solid var(--card-border)!important;
-    border-radius:8px!important;
-    box-shadow:none!important;
+    background:#fff !important; border:1px solid var(--card-border)!important; border-radius:8px!important;
     padding:8px 12px!important;
   }
-  [data-testid="stMetric"] *{ background:transparent!important; }
+
+  /* Tabs: ensure flat inactive & solid active */
+  .stTabs [data-baseweb="tab"]{ background:var(--muted)!important; }
+  .stTabs [aria-selected="true"]{ background:var(--rb-mblue)!important; color:#fff!important; }
+  .stTabs [data-baseweb="tab"], .stTabs [aria-selected="true"]{ background-image:none!important; box-shadow:none!important; }
+
+  /* File uploader box */
+  [data-testid="stFileUploaderDropzone"]{
+    background:#fff !important; border:1px solid var(--card-border)!important; border-radius:8px!important; box-shadow:none!important;
+  }
+
+  /* Dataframes */
+  [data-testid="stDataFrame"] *, [data-testid="stTable"] * { background:#fff !important; }
+
   /* Your custom "tile" blocks that use markdown/HTML */
   .rb-card{
     background:var(--card-bg)!important;
@@ -1500,6 +1533,15 @@ def generate_genai_insights(payload: dict) -> dict:
       * NEVER suggest changing OGC/fees; OGC is fixed and not a lever.
     Now cached per stable hash of salient numeric inputs to avoid flicker.
     """
+    # Early exit if no OpenAI key
+    if not OPENAI_READY:
+        return {
+            "headline": "⚠️ OpenAI key not configured",
+            "drivers": [],
+            "takeaway": "Set OPENAI_API_KEY environment variable or configure [openai].api_key in Streamlit Secrets.",
+            "recommendations": []
+        }
+
     # Build a minimal, stable key from the numbers we actually show in UI
     key_parts = [
         payload.get("fund_code"),
@@ -1635,10 +1677,11 @@ def generate_genai_insights(payload: dict) -> dict:
             "recommendations": []
         }
     except Exception as e:
+        st.warning(f"OpenAI request failed: {type(e).__name__}: {e}")
         return {
             "headline": f"⚠️ API error: {type(e).__name__}",
             "drivers": [str(e)],
-            "takeaway": "Check your OpenAI API key and connection.",
+            "takeaway": "OpenAI call failed. Check API key in Streamlit Secrets or OPENAI_API_KEY env variable.",
             "recommendations": []
         }
 
@@ -2499,6 +2542,8 @@ with tab_scn:
 # --- Tab: GenAI Insights ---
 with tab_ins:
     st.subheader("GenAI Insights")
+    if not OPENAI_READY:
+        st.warning("⚠️ OpenAI key not detected. Set `OPENAI_API_KEY` environment variable or configure `[openai].api_key` in Streamlit Secrets to enable AI-powered insights.")
     st.caption("AI-generated summary and recommendations based on Fund vs Benchmark positioning in the selected scenario.")
 
     # Prepare payload first (needed for cache key computation)
@@ -2528,7 +2573,9 @@ with tab_ins:
     with cols[1]:
         do_refresh = st.button("Clear Cache & Regenerate")
     with cols[2]:
-        if cached:
+        if not OPENAI_READY:
+            st.caption("⚠️ **OpenAI not configured** — key required for AI insights")
+        elif cached:
             st.caption("✅ Cache: **HIT** — results cached from previous generation with same inputs")
         else:
             st.caption("❌ Cache: **MISS** — new inputs, will call OpenAI API")
