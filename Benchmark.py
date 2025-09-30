@@ -194,6 +194,19 @@ def inject_brand_css() -> None:
 
   /* Popover button */
   .link { color:var(--rb-mblue); text-decoration:underline; cursor:pointer; }
+
+  /* ——— Remove text highlighting ——— */
+  ::selection { background: transparent !important; color: inherit !important; }
+  ::-moz-selection { background: transparent !important; color: inherit !important; }
+  mark { background: transparent !important; color: inherit !important; }
+  /* Mobile tap highlight */
+  * { -webkit-tap-highlight-color: transparent; }
+
+  /* Optional: keep accessibility by styling focus, not removing it */
+  :focus-visible {
+    outline: 2px solid var(--rb-orange) !important;
+    outline-offset: 2px !important;
+  }
 </style>
         """,
         unsafe_allow_html=True,
