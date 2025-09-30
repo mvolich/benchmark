@@ -79,21 +79,65 @@ def inject_brand_css() -> None:
     --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB;
     --rb-grey:#D8D7DF; --rb-orange:#CF4520;
   }
+  :root {
+    --card-bg:#FFFFFF; --card-border:#E2E8F0; --muted:#E9EDF5;
+    --page:#F8F9FA; --pos:#14833B; --neg:#B00020;
+  }
   html, body, .stApp, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="stMarkdownContainer"] * {
-    background-color:#f8f9fa;
+    background-color:var(--page);
     font-family: 'Inter', 'Segoe UI', Roboto, Arial, sans-serif !important;
     color:#0b0c0c;
   }
 
   /* Tabs */
   .stTabs [data-baseweb="tab-list"]{ display:flex !important; width:100% !important; gap:12px; border-bottom:none; }
-  .stTabs [data-baseweb="tab"]{ background-color:var(--rb-grey); border-radius:4px 4px 0 0; color:var(--rb-blue); font-weight:600; min-width:180px; text-align:center; padding:8px 16px; }
-  .stTabs [aria-selected="true"]{ background-color:var(--rb-mblue)!important; color:#fff!important; border-bottom:3px solid rgb(207,69,32)!important; }
+  .stTabs [data-baseweb="tab"]{
+    background-color:var(--muted);
+    border-radius:4px 4px 0 0;
+    color:var(--rb-blue);
+    font-weight:600;
+    min-width:180px;
+    text-align:center;
+    padding:8px 16px;
+  }
+  .stTabs [aria-selected="true"]{
+    background-color:var(--rb-mblue)!important;
+    color:#fff!important;
+    border-bottom:3px solid var(--rb-orange)!important;
+  }
   .stTabs [data-baseweb="tab-list"] > [data-baseweb="tab"]:last-child{ margin-left:auto !important; }
 
   /* Buttons */
   .stButton > button, .stDownloadButton > button { background-color:var(--rb-mblue); color:#fff; border:none; border-radius:4px; padding:8px 16px; font-weight:600; }
   .stButton > button:hover, .stDownloadButton > button:hover { background-color:var(--rb-blue); }
+
+  /* Metric/tiles — remove inner grey and unify card look */
+  [data-testid="stMetric"]{
+    background:var(--card-bg)!important;
+    border:1px solid var(--card-border)!important;
+    border-radius:8px!important;
+    box-shadow:none!important;
+    padding:8px 12px!important;
+  }
+  [data-testid="stMetric"] *{ background:transparent!important; }
+  /* Your custom "tile" blocks that use markdown/HTML */
+  .rb-card{
+    background:var(--card-bg)!important;
+    border:1px solid var(--card-border)!important;
+    border-radius:8px!important;
+    box-shadow:none!important;
+  }
+  .rb-muted{ background:var(--muted)!important; }
+  .rb-pos { color:var(--pos)!important; }
+  .rb-neg { color:var(--neg)!important; }
+
+  /* File uploader and sidebar panels */
+  [data-testid="stFileUploader"] div[aria-live="polite"],
+  [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div{
+    background:var(--card-bg)!important;
+    border:1px solid var(--card-border)!important;
+    border-radius:8px!important;
+  }
 
   /* Sliders */
   .stSlider [role="slider"]{ background-color:var(--rb-orange)!important; }
