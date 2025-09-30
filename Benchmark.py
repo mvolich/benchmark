@@ -90,20 +90,29 @@ def inject_brand_css() -> None:
   }
 
   /* Tabs */
-  .stTabs [data-baseweb="tab-list"]{ display:flex !important; width:100% !important; gap:12px; border-bottom:none; }
-  .stTabs [data-baseweb="tab"]{
-    background-color:var(--muted);
-    border-radius:4px 4px 0 0;
-    color:var(--rb-blue);
-    font-weight:600;
-    min-width:180px;
-    text-align:center;
-    padding:8px 16px;
+  .stTabs [data-baseweb="tab-list"]{
+    display:flex!important; width:100%!important; gap:12px;
+    border-bottom:none; align-items:flex-end;
   }
+  .stTabs [data-baseweb="tab"]{
+    background:var(--muted)!important; background-image:none!important;
+    color:var(--rb-blue)!important;
+    border-radius:6px 6px 0 0!important;
+    border:1px solid var(--card-border)!important; border-bottom:none!important;
+    box-shadow:none!important;
+    padding:10px 18px!important; height:40px!important; line-height:20px!important;
+    font-weight:700!important;
+  }
+  .stTabs [data-baseweb="tab"]:focus{ outline:none!important; box-shadow:none!important; }
   .stTabs [aria-selected="true"]{
-    background-color:var(--rb-mblue)!important;
-    color:#fff!important;
-    border-bottom:3px solid var(--rb-orange)!important;
+    background:var(--rb-mblue)!important; color:#fff!important;
+    border-color:var(--rb-mblue)!important;
+    position:relative;
+  }
+  .stTabs [aria-selected="true"]::after{
+    content:""; position:absolute; left:0; right:0; bottom:-3px; height:3px;
+    background:var(--rb-orange);
+    border-radius:0 0 2px 2px;
   }
   .stTabs [data-baseweb="tab-list"] > [data-baseweb="tab"]:last-child{ margin-left:auto !important; }
 
