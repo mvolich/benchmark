@@ -17,9 +17,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import math
+import re
 import textwrap
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
@@ -228,6 +230,36 @@ def map_fund_to_ogc(ogc_df: pd.DataFrame) -> Dict[str, float]:
             hit = 0.0
         out[code] = hit
     return out
+
+def _hash_inputs_for_ai(*parts: str) -> str:
+    """Stable hash of key inputs to cache/dedupe GenAI results."""
+    h = hashlib.sha256()
+    for p in parts:
+        if p is None:
+            continue
+        h.update(str(p).encode("utf-8"))
+        h.update(b"|")
+    return h.hexdigest()[:16]
+
+def _dedupe_lines(lines):
+    """Remove duplicate lines (case-insensitive, whitespace-normalized)."""
+    seen = set()
+    out = []
+    for x in lines or []:
+        k = re.sub(r"\s+", " ", x.strip().lower())
+        if k and k not in seen:
+            seen.add(k)
+            out.append(x.strip())
+    return out
+
+def _is_strong_driver(text: str) -> bool:
+    """Reject single words or < 8 chars; prefer phrase-level drivers."""
+    if not text:
+        return False
+    t = text.strip()
+    if len(t) < 8:
+        return False
+    return (" " in t) and any(k in t.lower() for k in ["spread","rates","duration","krd","dts","curve","ogc","carry","etr","usd","eur","gbp"])
 
 # ================================ Data Ingest ================================
 
@@ -1332,7 +1364,29 @@ def generate_genai_insights(payload: dict) -> dict:
       * Use only numbers in payload.
       * Be benchmark-aware and scenario-aware.
       * NEVER suggest changing OGC/fees; OGC is fixed and not a lever.
+    Now cached per stable hash of salient numeric inputs to avoid flicker.
     """
+    # Build a minimal, stable key from the numbers we actually show in UI
+    key_parts = [
+        payload.get("fund_code"),
+        payload.get("scenario_name"),
+        str(payload.get("fund", {}).get("total_bps")),
+        str(payload.get("benchmark", {}).get("total_bps")),
+        str(payload.get("relative", {}).get("total_bps")),
+        str(payload.get("relative", {}).get("carry_bps")),
+        str(payload.get("relative", {}).get("credit_bps")),
+        str(payload.get("relative", {}).get("rates_bps")),
+        str(payload.get("dts_fund")),
+        str(payload.get("dts_index")),
+    ]
+    ai_key = _hash_inputs_for_ai(*key_parts)
+
+    if "genai_cache" not in st.session_state:
+        st.session_state["genai_cache"] = {}
+    cache = st.session_state["genai_cache"]
+    if ai_key in cache:
+        return cache[ai_key]
+
     try:
         openai.api_key = st.secrets["openai"]["OPENAI_API_KEY"]
         system_msg = {
@@ -1405,6 +1459,39 @@ def generate_genai_insights(payload: dict) -> dict:
         data.setdefault("drivers", [])
         data.setdefault("takeaway", "")
         data.setdefault("recommendations", [])
+
+        # Enforce materiality: filter out trivial recommendations (|est_delta_bps| < 5)
+        material_recs = []
+        for rec in data.get("recommendations", []):
+            est_bps = rec.get("est_delta_bps")
+            # Keep if: (1) no numeric estimate, or (2) |estimate| >= 5 bps
+            if est_bps is None:
+                material_recs.append(rec)
+            else:
+                try:
+                    if abs(float(est_bps)) >= 5:
+                        material_recs.append(rec)
+                except (ValueError, TypeError):
+                    material_recs.append(rec)  # Keep if unparseable
+        data["recommendations"] = material_recs
+
+        # Filter drivers: keep only those mentioning meaningful deltas (|Δ| ≥ 5 bps)
+        material_drivers = []
+        for drv in data.get("drivers", []):
+            m = re.search(r"([-+]?\d+)\s*bps", drv.lower())
+            if not m:
+                material_drivers.append(drv)  # Keep if no numeric; quality gate handles rest
+            else:
+                try:
+                    val = abs(int(m.group(1)))
+                    if val >= 5:
+                        material_drivers.append(drv)
+                except (ValueError, TypeError):
+                    material_drivers.append(drv)
+        data["drivers"] = material_drivers
+
+        # Cache result before returning
+        cache[ai_key] = data
         return data
     except json.JSONDecodeError as e:
         return {
@@ -1420,8 +1507,6 @@ def generate_genai_insights(payload: dict) -> dict:
             "takeaway": "Check your OpenAI API key and connection.",
             "recommendations": []
         }
-
-import re
 
 def _norm_key(s: str) -> str:
     """Normalize a title/action to a semantic key for de-dup."""
@@ -1441,11 +1526,39 @@ def vet_recommendations(payload: dict, ai: dict) -> dict:
         * Tightening + Underweight = Increase (harmful)
         * Tightening + Overweight = Maintain (beneficial)
       - Ensure unique titles; if <3 items, add a rates governance rec.
+      - ENHANCED: Dedupe drivers, enforce strong driver quality, ensure numeric context in bullets.
     """
     try:
         input_recs = ai.get("recommendations", []) or []
         out = []
         seen = set()
+
+        # --- PRE-PROCESS DRIVERS (dedupe + quality filter) ---
+        drivers = ai.get("drivers", []) or []
+        drivers = _dedupe_lines(drivers)
+        drivers = [d for d in drivers if _is_strong_driver(d)]
+
+        # Fallback drivers if none pass quality filter
+        if not drivers:
+            fallback = []
+            rel = payload.get("relative", {})
+            fund = payload.get("fund", {})
+            pos = payload.get("positioning", {})
+            if rel.get("credit_bps") is not None:
+                fallback.append(f"Credit impact: Fund {fund.get('credit_bps',0):.0f} bps vs Benchmark {payload.get('benchmark',{}).get('credit_bps',0):.0f} bps")
+            if rel.get("rates_bps") is not None:
+                fallback.append(f"Rates impact: Fund {fund.get('rates_bps',0):.0f} bps vs Benchmark {payload.get('benchmark',{}).get('rates_bps',0):.0f} bps")
+            if pos.get("dts_fund") is not None:
+                fallback.append(f"DTS positioning: Fund {pos.get('dts_fund',0):.2f} vs Benchmark {pos.get('dts_benchmark',0):.2f}")
+            if rel.get("carry_bps") is not None:
+                fallback.append(f"Carry advantage: {rel.get('carry_bps',0):.0f} bps (Fund − Benchmark)")
+            drivers = fallback[:3]
+
+        # Cap drivers to 5 max
+        if len(drivers) > 5:
+            drivers = drivers[:5]
+
+        ai["drivers"] = drivers
 
         # scenario context
         credit_env = payload.get("scenario_meta", {}).get("credit_environment","no_change")
@@ -1537,6 +1650,38 @@ def vet_recommendations(payload: dict, ai: dict) -> dict:
                 "est_delta_bps": 0,
                 "why": "Avoid over-rotation on a single scenario realisation."
             })
+
+        # --- POST-PROCESS RECOMMENDATIONS (dedupe + numeric context) ---
+        # Dedupe recommendation text
+        unique_recs = []
+        seen_text = set()
+        for r in out:
+            action_text = (r.get("action") or "").strip()
+            norm = re.sub(r"\s+", " ", action_text.lower())
+            if norm and norm not in seen_text:
+                seen_text.add(norm)
+                unique_recs.append(r)
+        out = unique_recs
+
+        # Ensure recommendations contain numeric context
+        def _ensure_numbers(r: dict) -> dict:
+            action = r.get("action", "")
+            # If no number present, append key metric deltas to anchor the claim
+            if not re.search(r"\d", action):
+                rel = payload.get("relative", {})
+                pads = []
+                if rel.get("credit_bps") is not None:
+                    pads.append(f"credit Δ {rel['credit_bps']:.0f} bps")
+                if rel.get("rates_bps") is not None:
+                    pads.append(f"rates Δ {rel['rates_bps']:.0f} bps")
+                if rel.get("total_bps") is not None:
+                    pads.append(f"rel ETR {rel['total_bps']:.0f} bps")
+                if pads:
+                    action = action + f" ({', '.join(pads[:2])})"
+                    r["action"] = action
+            return r
+
+        out = [_ensure_numbers(r) for r in out]
 
         ai["recommendations"] = out[:3]
         return ai
@@ -2222,9 +2367,46 @@ with tab_ins:
     st.subheader("GenAI Insights")
     st.caption("AI-generated summary and recommendations based on Fund vs Benchmark positioning in the selected scenario.")
 
-    if st.button("Generate GenAI Insights", type="primary"):
-        ogc_bps_f = float(inputs.ogc_map_bps.get(fund_code, 0.0))
-        payload = build_genai_payload(sel, drilldown, scn_id, krd_fund, krd_index, ogc_bps_f)
+    # Prepare payload first (needed for cache key computation)
+    ogc_bps_f = float(inputs.ogc_map_bps.get(fund_code, 0.0))
+    payload = build_genai_payload(sel, drilldown, scn_id, krd_fund, krd_index, ogc_bps_f)
+
+    # Compute cache key to show cache status
+    key_parts = [
+        payload.get("fund_code"),
+        payload.get("scenario_name"),
+        str(payload.get("fund", {}).get("total_bps")),
+        str(payload.get("benchmark", {}).get("total_bps")),
+        str(payload.get("relative", {}).get("total_bps")),
+        str(payload.get("relative", {}).get("carry_bps")),
+        str(payload.get("relative", {}).get("credit_bps")),
+        str(payload.get("relative", {}).get("rates_bps")),
+        str(payload.get("positioning", {}).get("dts_fund")),
+        str(payload.get("positioning", {}).get("dts_benchmark")),
+    ]
+    cache_key = _hash_inputs_for_ai(*key_parts)
+    cached = ("genai_cache" in st.session_state) and (cache_key in st.session_state["genai_cache"])
+
+    # Button row with cache indicator
+    cols = st.columns([1, 1, 3])
+    with cols[0]:
+        do_generate = st.button("Generate Insights", type="primary")
+    with cols[1]:
+        do_refresh = st.button("Clear Cache & Regenerate")
+    with cols[2]:
+        if cached:
+            st.caption("✅ Cache: **HIT** — results cached from previous generation with same inputs")
+        else:
+            st.caption("❌ Cache: **MISS** — new inputs, will call OpenAI API")
+
+    # Handle refresh (clear cache entry)
+    if do_refresh and "genai_cache" in st.session_state and cache_key in st.session_state["genai_cache"]:
+        del st.session_state["genai_cache"][cache_key]
+        st.info("Cache cleared for current inputs. Click 'Generate Insights' to regenerate.")
+        cached = False
+
+    # Generate insights
+    if do_generate:
         result = generate_genai_insights(payload)
         result = vet_recommendations(payload, result)
 
