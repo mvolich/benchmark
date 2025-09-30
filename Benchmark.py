@@ -28,7 +28,8 @@ from typing import Dict, List, Tuple
 from decimal import Decimal, ROUND_HALF_UP
 
 import numpy as np
-import os, openai
+import os
+from openai import OpenAI
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -50,9 +51,8 @@ def _resolve_openai_key():
         return None
 
 _OPENAI_KEY = _resolve_openai_key()
-if _OPENAI_KEY:
-    openai.api_key = _OPENAI_KEY
 OPENAI_READY = bool(_OPENAI_KEY)
+OPENAI_CLIENT = OpenAI(api_key=_OPENAI_KEY) if OPENAI_READY else None
 
 RB_COLORS = {
     "blue":     "#001E4F",  # Dark Blue
@@ -1507,13 +1507,13 @@ def generate_genai_insights(payload: dict) -> dict:
             )
         }
         user_msg = {"role": "user", "content": json.dumps(payload)}
-        resp = openai.ChatCompletion.create(
+        resp = OPENAI_CLIENT.chat.completions.create(
             model="gpt-4o-mini",
             messages=[system_msg, user_msg],
             max_tokens=800,
             temperature=0.1,
         )
-        txt = resp.choices[0].message["content"].strip()
+        txt = resp.choices[0].message.content.strip()
         
         with st.expander("🔍 Debug: Raw AI Response"):
             st.code(txt, language="json")
