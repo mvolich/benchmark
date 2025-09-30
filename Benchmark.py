@@ -2208,46 +2208,84 @@ with tab_pos:
     st.subheader("Headline Metrics vs Benchmark")
     stats = compute_headline_stats(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_f)
     stats["net_carry_adv"] = stats["net_carry"] - stats["car_i"]
-    
+
+    # ---------- Comparison helpers ----------
+    def _fmt_signed_bps(x: float) -> str:
+        return f"{x:+.0f} bps"
+
+    def _fmt_signed_years_per_100bp(x: float) -> str:
+        return f"{x:+.2f} yrs / 100bp"
+
+    def _fmt_signed_unitless(x: float) -> str:
+        return f"{x:+.2f}"
+
+    def _delta_pill(delta_html: str, positive_is_good: bool, is_return_metric: bool) -> str:
+        """
+        - For return metrics (carry, net carry), green = good when Δ>0 (fund beats benchmark).
+        - For risk metrics (duration, DTS), stay neutral; we don't imply 'good/bad'.
+        """
+        if is_return_metric and positive_is_good:
+            cls = "rb-pos"
+        elif is_return_metric and not positive_is_good:
+            cls = "rb-neg"
+        else:
+            cls = ""  # neutral
+        return f'<span class="{cls}" style="font-weight:700">{delta_html}</span>'
+
+    def render_compare_rows(title: str, rows: list, format_fn, is_return_metric: bool):
+        if title:
+            st.caption(title)
+        # Header
+        h1, h2, h3, h4 = st.columns([2.4, 1.2, 1.2, 1.2])
+        with h1: st.markdown("**Metric**")
+        with h2: st.markdown("**Fund**")
+        with h3: st.markdown("**Benchmark**")
+        with h4: st.markdown("**Δ (Fund − Bench)**")
+        # Rows
+        for label, fund_val, bench_val in rows:
+            delta = (fund_val - bench_val) if (fund_val is not None and bench_val is not None) else None
+            c1, c2, c3, c4 = st.columns([2.4, 1.2, 1.2, 1.2])
+            with c1:
+                st.markdown(f'<div class="rb-card" style="padding:8px 12px"><strong>{label}</strong></div>', unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'<div class="rb-card" style="padding:8px 12px">{format_fn(fund_val)}</div>', unsafe_allow_html=True)
+            with c3:
+                st.markdown(f'<div class="rb-card" style="padding:8px 12px">{format_fn(bench_val)}</div>', unsafe_allow_html=True)
+            with c4:
+                if delta is None:
+                    delta_html = "—"
+                else:
+                    positive_is_good = (delta > 0) if is_return_metric else True
+                    delta_html = _delta_pill(format_fn(delta), positive_is_good, is_return_metric)
+                st.markdown(f'<div class="rb-card" style="padding:8px 12px">{delta_html}</div>', unsafe_allow_html=True)
+
     col_tiles, col_bullets = st.columns([1.3, 1.0], gap="large")
 
     with col_tiles:
-        st.caption("Risk Metrics")
-        r1c1, r1c2, r1c3 = st.columns(3)
-        with r1c1:
-            stat_tile_signed("Curve Duration (Fund)", stats["dur_f"], unit="yrs / 100bp", dp=2)
-        with r1c2:
-            stat_tile_signed("Curve Duration (Benchmark)", stats["dur_i"], unit="yrs / 100bp", dp=2, emphasize=False)
-        with r1c3:
-            stat_tile_signed("Curve Duration Δ (Fund − Benchmark)", stats["dur_d"], unit="yrs / 100bp", dp=2, color=delta_color(stats["dur_d"]))
+        # ---------- RISK (neutral colours) ----------
+        risk_rows = [
+            ("Curve Duration", stats["dur_f"], stats["dur_i"]),
+            ("Spread Sensitivity (DTS)", stats["dts_f"], stats["dts_i"]),
+        ]
+        render_compare_rows("Risk Metrics",
+                          [risk_rows[0]],
+                          _fmt_signed_years_per_100bp,
+                          is_return_metric=False)
+        render_compare_rows("",
+                          [risk_rows[1]],
+                          _fmt_signed_unitless,
+                          is_return_metric=False)
 
-        r2c1, r2c2, r2c3 = st.columns(3)
-        with r2c1:
-            stat_tile_signed("Spread Sensitivity (DTS) — Fund", stats["dts_f"], unit="", dp=2)
-        with r2c2:
-            stat_tile_signed("Spread Sensitivity (DTS) — Benchmark", stats["dts_i"], unit="", dp=2, emphasize=False)
-        with r2c3:
-            stat_tile_signed("DTS Δ (Fund − Benchmark)", stats["dts_d"], unit="", dp=2, color=delta_color(stats["dts_d"]))
-
-        st.caption("Return Metrics")
-        r3c1, r3c2, r3c3 = st.columns(3)
-        with r3c1:
-            stat_tile_signed("Carry (Fund)", stats["car_f"], unit="bps", dp=0)
-        with r3c2:
-            stat_tile_signed("Carry (Benchmark)", stats["car_i"], unit="bps", dp=0, emphasize=False)
-        with r3c3:
-            stat_tile_signed("Carry Difference (Fund − Benchmark)", stats["car_d"], unit="bps", dp=0, color=delta_color(stats["car_d"]))
-
-        r4c1, r4c2 = st.columns(2)
-        with r4c1:
-            stat_tile_signed("OGC (Fund)", stats["ogc_f"], unit="bps", dp=0, emphasize=False)
-        with r4c2:
-            stat_tile_signed("Net Carry (after OGC)", stats["net_carry"], unit="bps", dp=0)
-        
-        # Net Carry Advantage tile
-        r5c1, = st.columns(1)
-        with r5c1:
-            stat_tile_signed("Net Carry Advantage vs Benchmark", stats["net_carry_adv"], unit="bps", dp=0, color=delta_color(stats["net_carry_adv"]))
+        # ---------- RETURN (green good / red bad) ----------
+        return_rows = [
+            ("Carry", stats["car_f"], stats["car_i"]),
+            ("OGC (Fund only)", stats["ogc_f"], 0.0),
+            ("Net Carry (after OGC)", stats["net_carry"], stats["car_i"]),
+        ]
+        render_compare_rows("Return Metrics",
+                          return_rows,
+                          _fmt_signed_bps,
+                          is_return_metric=True)
 
     with col_bullets:
         st.subheader("Key Positioning Insights")
