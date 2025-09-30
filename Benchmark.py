@@ -201,6 +201,18 @@ def inject_brand_css() -> None:
   /* Popover button */
   .link { color:var(--rb-mblue); text-decoration:underline; cursor:pointer; }
 
+  /* Insights card grows to match tile stack height */
+  .rb-insights{
+    min-height: 560px;            /* tweak 520–640px to taste */
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+  @media (max-width: 1200px){
+    .rb-insights{ min-height: auto; }  /* let it collapse on small screens */
+  }
+
   /* ——— Remove text highlighting ——— */
   ::selection { background: transparent !important; color: inherit !important; }
   ::-moz-selection { background: transparent !important; color: inherit !important; }
@@ -2288,9 +2300,11 @@ with tab_pos:
                           is_return_metric=True)
 
     with col_bullets:
-        st.subheader("Key Positioning Insights")
+        st.markdown('<div class="rb-card rb-insights">', unsafe_allow_html=True)
+        st.markdown("### Key Positioning Insights")
         positioning_summary = render_positioning_bullets(krd_fund, krd_index, fund_slice, index_slice, ogc_bps_f)
         st.markdown(positioning_summary)
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # 2) Duration Contribution by Currency and Curve Sensitivity by Maturity
     st.subheader("Duration Contribution by Currency  •  Curve Sensitivity by Maturity")
