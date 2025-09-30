@@ -88,98 +88,42 @@ def inject_brand_css() -> None:
     st.markdown(
         """
 <style>
-  /* ROAM global style — cache bust */
-  /* version: v1 */
+  /* ROAM styles – full normalization */
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
   @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-  :root {
-    --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB;
-    --rb-grey:#D8D7DF; --rb-orange:#CF4520;
-  }
-  :root {
-    --card-bg:#FFFFFF; --card-border:#E2E8F0; --muted:#E9EDF5;
-    --page:#F8F9FA; --pos:#14833B; --neg:#B00020;
+  :root{
+    --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520;
+    --page:#F8F9FA; --card-bg:#FFFFFF; --card-border:#E2E8F0; --muted:#E9EDF5;
+    --pos:#14833B; --neg:#B00020;
   }
   html, body, .stApp, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="stMarkdownContainer"] * {
     background-color:var(--page);
-    font-family: 'Inter', 'Segoe UI', Roboto, Arial, sans-serif !important;
+    font-family:Inter, "Segoe UI", Roboto, Arial, sans-serif !important;
     color:#0b0c0c;
+    background-image:none !important;
   }
 
   /* Tabs */
   .stTabs [data-baseweb="tab-list"]{
-    display:flex!important; width:100%!important; gap:12px;
-    border-bottom:none; align-items:flex-end;
+    display:flex!important; width:100%!important; gap:12px; border-bottom:none; align-items:flex-end;
   }
   .stTabs [data-baseweb="tab"]{
     background:var(--muted)!important; background-image:none!important;
-    color:var(--rb-blue)!important;
-    border-radius:6px 6px 0 0!important;
+    color:var(--rb-blue)!important; border-radius:6px 6px 0 0!important;
     border:1px solid var(--card-border)!important; border-bottom:none!important;
-    box-shadow:none!important;
-    padding:10px 18px!important; height:40px!important; line-height:20px!important;
+    box-shadow:none!important; padding:10px 18px!important; height:40px!important; line-height:20px!important;
     font-weight:700!important;
   }
   .stTabs [data-baseweb="tab"]:focus{ outline:none!important; box-shadow:none!important; }
   .stTabs [aria-selected="true"]{
-    background:var(--rb-mblue)!important; color:#fff!important;
-    border-color:var(--rb-mblue)!important;
-    position:relative;
-  }
-  .stTabs [aria-selected="true"]::after{
-    content:""; position:absolute; left:0; right:0; bottom:-3px; height:3px;
-    background:var(--rb-orange);
-    border-radius:0 0 2px 2px;
+    background:var(--rb-mblue)!important; color:#fff!important; border-color:var(--rb-mblue)!important;
+    box-shadow: inset 0 -3px 0 var(--rb-orange) !important;  /* orange underline, no fill */
   }
   .stTabs [data-baseweb="tab-list"] > [data-baseweb="tab"]:last-child{ margin-left:auto !important; }
 
   /* Buttons */
   .stButton > button, .stDownloadButton > button { background-color:var(--rb-mblue); color:#fff; border:none; border-radius:4px; padding:8px 16px; font-weight:600; }
   .stButton > button:hover, .stDownloadButton > button:hover { background-color:var(--rb-blue); }
-
-  /* ---- Flatten ALL remaining gradients / grey fills ---- */
-  *, *::before, *::after { background-image: none !important; }
-
-  /* Metrics: nuke inner grey bars/strips */
-  [data-testid="stMetric"], [data-testid="stMetric"] * {
-    background: transparent !important; background-color: transparent !important; box-shadow:none!important;
-  }
-  [data-testid="stMetric"]{
-    background:#fff !important; border:1px solid var(--card-border)!important; border-radius:8px!important;
-    padding:8px 12px!important;
-  }
-
-  /* Tabs: ensure flat inactive & solid active */
-  .stTabs [data-baseweb="tab"]{ background:var(--muted)!important; }
-  .stTabs [aria-selected="true"]{ background:var(--rb-mblue)!important; color:#fff!important; }
-  .stTabs [data-baseweb="tab"], .stTabs [aria-selected="true"]{ background-image:none!important; box-shadow:none!important; }
-
-  /* File uploader box */
-  [data-testid="stFileUploaderDropzone"]{
-    background:#fff !important; border:1px solid var(--card-border)!important; border-radius:8px!important; box-shadow:none!important;
-  }
-
-  /* Dataframes */
-  [data-testid="stDataFrame"] *, [data-testid="stTable"] * { background:#fff !important; }
-
-  /* Your custom "tile" blocks that use markdown/HTML */
-  .rb-card{
-    background:var(--card-bg)!important;
-    border:1px solid var(--card-border)!important;
-    border-radius:8px!important;
-    box-shadow:none!important;
-  }
-  .rb-muted{ background:var(--muted)!important; }
-  .rb-pos { color:var(--pos)!important; }
-  .rb-neg { color:var(--neg)!important; }
-
-  /* File uploader and sidebar panels */
-  [data-testid="stFileUploader"] div[aria-live="polite"],
-  [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div{
-    background:var(--card-bg)!important;
-    border:1px solid var(--card-border)!important;
-    border-radius:8px!important;
-  }
 
   /* Sliders */
   .stSlider [role="slider"]{ background-color:var(--rb-orange)!important; }
@@ -196,8 +140,34 @@ def inject_brand_css() -> None:
   .stColumn, .stExpander, [data-testid="column"], [data-testid="stVerticalBlock"] { overflow:visible!important; }
 
   /* Force white dropdowns */
-  div[data-baseweb="select"] > div { background-color: #fff !important; border: 1px solid var(--rb-grey); border-radius: 4px; color: #000; }
-  div[data-baseweb="select"] > div:hover { border-color: var(--rb-mblue); }
+  div[data-baseweb="select"] > div { background:#fff !important; border:1px solid var(--card-border)!important; border-radius:4px; color:#000; box-shadow:none!important; }
+  div[data-baseweb="select"] > div:hover { border-color: var(--rb-mblue)!important; }
+
+  /* Inputs / textareas / number widgets */
+  input, textarea { background:#fff !important; border:1px solid var(--card-border)!important; box-shadow:none!important; }
+  input:focus, textarea:focus { border-color:var(--rb-mblue)!important; box-shadow:none!important; outline:none!important; }
+
+  /* Metrics: flatten */
+  [data-testid="stMetric"], [data-testid="stMetric"] * {
+    background:transparent!important; background-color:transparent!important; box-shadow:none!important;
+  }
+  [data-testid="stMetric"]{
+    background:#fff!important; border:1px solid var(--card-border)!important; border-radius:8px!important; padding:8px 12px!important;
+  }
+
+  /* File uploader */
+  [data-testid="stFileUploaderDropzone"]{
+    background:#fff!important; border:1px solid var(--card-border)!important; border-radius:8px!important; box-shadow:none!important;
+  }
+
+  /* Tables / DataFrames: white header/body */
+  [data-testid="stDataFrame"] th, [data-testid="stDataFrame"] td,
+  [data-testid="stTable"] th, [data-testid="stTable"] td { background:#fff!important; }
+
+  /* Our custom tiles (if used) */
+  .rb-card{ background:#fff!important; border:1px solid var(--card-border)!important; border-radius:8px!important; box-shadow:none!important; }
+  .rb-muted{ background:var(--muted)!important; }
+  .rb-pos{ color:var(--pos)!important; } .rb-neg{ color:var(--neg)!important; }
 
   /* Header */
   .rb-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
@@ -222,64 +192,6 @@ def inject_brand_css() -> None:
 
   /* Popover button */
   .link { color:var(--rb-mblue); text-decoration:underline; cursor:pointer; }
-
-  /* ---------- Shading / gradient cleanup (global) ---------- */
-  /* Kill BaseWeb/Streamlit gradient backgrounds */
-  *, *::before, *::after { background-image: none !important; }
-
-  /* Metric tiles: force flat white throughout */
-  [data-testid="stMetric"]{
-    background: var(--card-bg) !important;
-    background-color: var(--card-bg) !important;
-    border:1px solid var(--card-border) !important;
-    border-radius:8px !important;
-    box-shadow:none !important;
-  }
-  [data-testid="stMetric"] *{
-    background: transparent !important;
-    background-color: transparent !important;
-    box-shadow:none !important;
-  }
-  [data-testid="stMetricValue"],
-  [data-testid="stMetricLabel"],
-  [data-testid="stMetricDelta"]{
-    background: transparent !important;
-  }
-
-  /* Tabs: remove any gradient and lock colours */
-  .stTabs [data-baseweb="tab"],
-  .stTabs [aria-selected="true"]{
-    background-image: none !important;
-  }
-  .stTabs [data-baseweb="tab"]{
-    background: var(--muted) !important;
-  }
-  .stTabs [aria-selected="true"]{
-    background: var(--rb-mblue) !important;
-    color:#fff !important;
-    border-bottom:3px solid var(--rb-orange) !important;
-  }
-
-  /* File uploader dropzone */
-  [data-testid="stFileUploaderDropzone"]{
-    background: var(--card-bg) !important;
-    border:1px solid var(--card-border) !important;
-    border-radius:8px !important;
-    box-shadow:none !important;
-  }
-
-  /* DataFrames / Tables: flatten header/body shading */
-  [data-testid="stDataFrame"] th,
-  [data-testid="stDataFrame"] td{
-    background:#fff !important;
-  }
-  [data-testid="stDataFrame"] [role="rowgroup"]{
-    background:#fff !important;
-  }
-
-  /* Our custom KPI blocks: keep inner flat */
-  .kpi { background:#fff !important; }
-  .kpi * { background:transparent !important; }
 </style>
         """,
         unsafe_allow_html=True,
@@ -1564,7 +1476,6 @@ def generate_genai_insights(payload: dict) -> dict:
         return cache[ai_key]
 
     try:
-        openai.api_key = st.secrets["openai"]["OPENAI_API_KEY"]
         system_msg = {
             "role": "system",
             "content": (
