@@ -180,6 +180,64 @@ def inject_brand_css() -> None:
 
   /* Popover button */
   .link { color:var(--rb-mblue); text-decoration:underline; cursor:pointer; }
+
+  /* ---------- Shading / gradient cleanup (global) ---------- */
+  /* Kill BaseWeb/Streamlit gradient backgrounds */
+  *, *::before, *::after { background-image: none !important; }
+
+  /* Metric tiles: force flat white throughout */
+  [data-testid="stMetric"]{
+    background: var(--card-bg) !important;
+    background-color: var(--card-bg) !important;
+    border:1px solid var(--card-border) !important;
+    border-radius:8px !important;
+    box-shadow:none !important;
+  }
+  [data-testid="stMetric"] *{
+    background: transparent !important;
+    background-color: transparent !important;
+    box-shadow:none !important;
+  }
+  [data-testid="stMetricValue"],
+  [data-testid="stMetricLabel"],
+  [data-testid="stMetricDelta"]{
+    background: transparent !important;
+  }
+
+  /* Tabs: remove any gradient and lock colours */
+  .stTabs [data-baseweb="tab"],
+  .stTabs [aria-selected="true"]{
+    background-image: none !important;
+  }
+  .stTabs [data-baseweb="tab"]{
+    background: var(--muted) !important;
+  }
+  .stTabs [aria-selected="true"]{
+    background: var(--rb-mblue) !important;
+    color:#fff !important;
+    border-bottom:3px solid var(--rb-orange) !important;
+  }
+
+  /* File uploader dropzone */
+  [data-testid="stFileUploaderDropzone"]{
+    background: var(--card-bg) !important;
+    border:1px solid var(--card-border) !important;
+    border-radius:8px !important;
+    box-shadow:none !important;
+  }
+
+  /* DataFrames / Tables: flatten header/body shading */
+  [data-testid="stDataFrame"] th,
+  [data-testid="stDataFrame"] td{
+    background:#fff !important;
+  }
+  [data-testid="stDataFrame"] [role="rowgroup"]{
+    background:#fff !important;
+  }
+
+  /* Our custom KPI blocks: keep inner flat */
+  .kpi { background:#fff !important; }
+  .kpi * { background:transparent !important; }
 </style>
         """,
         unsafe_allow_html=True,
