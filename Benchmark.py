@@ -116,8 +116,10 @@ def inject_brand_css() -> None:
     box-shadow:none!important; padding:10px 18px!important; height:40px!important; line-height:20px!important;
     font-weight:700!important;
   }
-  /* Kill any inner gradient layers Base Web adds inside the tab */
+  /* Kill ALL descendant backgrounds/gradients inside tabs (Base Web wrappers) */
   .stTabs [data-baseweb="tab"] * { background:transparent!important; background-image:none!important; box-shadow:none!important; }
+  .stTabs [data-baseweb="tab"] div[style*="linear-gradient"],
+  .stTabs [data-baseweb="tab"] div[style*="background"] { background:transparent!important; }
   .stTabs [data-baseweb="tab"]:focus{ outline:none!important; box-shadow:none!important; }
   .stTabs [aria-selected="true"]{
     background:var(--rb-mblue)!important; color:#fff!important; border-color:var(--rb-mblue)!important;
@@ -156,16 +158,10 @@ def inject_brand_css() -> None:
     background:#fff!important; border:1px solid var(--card-border)!important; border-radius:8px!important; padding:8px 12px!important;
     box-shadow:none!important;
   }
-  /* Flatten ALL nested layers inside metric (Base Web inserts multiple wrappers) */
-  [data-testid="stMetric"],
-  [data-testid="stMetric"] *,
-  [data-testid="stMetricValue"],
-  [data-testid="stMetricDelta"],
-  [data-testid="stMetricLabel"]{
-    background:transparent!important; background-image:none!important; box-shadow:none!important;
-  }
-  /* Some builds add a linear-gradient on a direct child <div> */
-  [data-testid="stMetric"] > div[style*="linear-gradient"] { background:transparent!important; }
+  /* Flatten ALL nested layers inside metric (multiple wrappers) */
+  [data-testid="stMetric"] * { background:transparent!important; background-image:none!important; box-shadow:none!important; }
+  [data-testid="stMetric"] div[style*="linear-gradient"],
+  [data-testid="stMetric"] div[style*="background"] { background:transparent!important; }
 
   /* File uploader */
   [data-testid="stFileUploaderDropzone"]{
