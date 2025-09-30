@@ -38,23 +38,26 @@ import streamlit as st
 # ================================ Branding & Theme ================================
 
 RB_COLORS = {
-    "blue":   "#001E4F",  # Dark Blue
-    "med":    "#2C5697",  # Medium Blue
-    "light":  "#7BA4DB",  # Light Blue
-    "grey":   "#D8D7DF",  # Grey
-    "orange": "#CF4520",  # Rubrics Orange
+    "blue":     "#001E4F",  # Dark Blue
+    "medblue":  "#2C5697",  # Medium Blue
+    "ltblue":   "#7BA4DB",  # Light Blue
+    "grey":     "#D8D7DF",  # Grey
+    "orange":   "#CF4520",  # Rubrics Orange
+    # Legacy aliases for backward compatibility
+    "med":      "#2C5697",
+    "light":    "#7BA4DB",
 }
 
-# Plotly template
+# Rubrics template aligned to ROAM (font stack & palette)
 BRAND_TEMPLATE = go.layout.Template(
     layout=go.Layout(
-        colorway=[RB_COLORS["blue"], RB_COLORS["med"], RB_COLORS["light"], RB_COLORS["grey"], RB_COLORS["orange"]],
-        font=dict(family="Arimo, Arial, sans-serif"),
+        colorway=[RB_COLORS["blue"], RB_COLORS["medblue"], RB_COLORS["ltblue"], RB_COLORS["grey"], RB_COLORS["orange"]],
+        font=dict(family="Ringside, Inter, Segoe UI, Roboto, Arial, sans-serif"),
         legend=dict(orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right"),
-        margin=dict(l=12, r=12, t=40, b=40),
+        margin=dict(l=10, r=10, t=40, b=40),
         paper_bgcolor="#FFFFFF",
         plot_bgcolor="#FFFFFF",
-        title=dict(font=dict(size=18, color=RB_COLORS["blue"])),
+        title=dict(font=dict(size=16)),
         xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)"),
         yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)"),
     )
@@ -68,14 +71,39 @@ def inject_brand_css() -> None:
     st.markdown(
         """
 <style>
-  /* Import Arimo (web-safe Arial alternative from Google Fonts) */
-  @import url('https://fonts.googleapis.com/css2?family=Arimo:wght@400;700&display=swap');
+  /* ROAM styles ported: Inter font, Rubrics palette, tabs/buttons */
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+  @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
+  :root{ --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520; }
+  html, body, .stApp, [class*="css"] { background-color:#f8f9fa; font-family:Inter, "Segoe UI", Roboto, Arial, sans-serif !important; color:#0b0c0c; }
 
-  :root{
-    --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520;
-  }
-  html, body, .stApp, [class*="css"] { background:#f7f8fb; color:#0b0c0c; font-family: 'Arimo', 'Arial', sans-serif !important; }
-  .block-container { padding-top: 3.5rem; padding-bottom: 4rem; }
+  /* Tabs */
+  .stTabs [data-baseweb="tab-list"]{ display:flex !important; width:100% !important; gap:12px; border-bottom:none; }
+  .stTabs [data-baseweb="tab"]{ background-color:var(--rb-grey); border-radius:4px 4px 0 0; color:var(--rb-blue); font-weight:600; min-width:180px; text-align:center; padding:8px 16px; }
+  .stTabs [aria-selected="true"]{ background-color:var(--rb-mblue)!important; color:#fff!important; border-bottom:3px solid rgb(207,69,32)!important; }
+  .stTabs [data-baseweb="tab-list"] > [data-baseweb="tab"]:last-child{ margin-left:auto !important; }
+
+  /* Buttons */
+  .stButton > button, .stDownloadButton > button { background-color:var(--rb-mblue); color:#fff; border:none; border-radius:4px; padding:8px 16px; font-weight:600; }
+  .stButton > button:hover, .stDownloadButton > button:hover { background-color:var(--rb-blue); }
+
+  /* Sliders */
+  .stSlider [role="slider"]{ background-color:var(--rb-orange)!important; }
+  .stSlider [data-baseweb="slider"] div[aria-hidden="true"]{ background-color:var(--rb-orange)!important; }
+
+  /* Headings */
+  h1, h2, h3, h4, h5, h6 { color:var(--rb-blue)!important; font-weight:700; }
+
+  /* Layout fixes */
+  html, body { height:auto!important; overflow-y:auto!important; }
+  .stApp, [data-testid="stAppViewContainer"] { height:auto!important; min-height:100vh!important; overflow-y:auto!important; overflow-x:hidden; }
+  section.main, [data-testid="stMain"] { height:auto!important; overflow:visible!important; }
+  .block-container { padding-bottom:6rem!important; }
+  .stColumn, .stExpander, [data-testid="column"], [data-testid="stVerticalBlock"] { overflow:visible!important; }
+
+  /* Force white dropdowns */
+  div[data-baseweb="select"] > div { background-color: #fff !important; border: 1px solid var(--rb-grey); border-radius: 4px; color: #000; }
+  div[data-baseweb="select"] > div:hover { border-color: var(--rb-mblue); }
 
   /* Header */
   .rb-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
@@ -86,20 +114,6 @@ def inject_brand_css() -> None:
 
   /* Controls */
   .stSelectbox label, .stRadio label, .stCheckbox label { font-weight:600; color:var(--rb-blue); }
-  .stButton>button, .stDownloadButton>button {
-    background: var(--rb-mblue); color:#fff; border:none; border-radius:4px; padding:8px 14px; font-weight:700;
-  }
-  .stButton>button:hover, .stDownloadButton>button:hover { background: var(--rb-blue); }
-
-  /* Tabs */
-  .stTabs [data-baseweb="tab-list"]{ gap:8px; border-bottom:none; }
-  .stTabs [data-baseweb="tab"]{
-    background:#ffffff; border:1px solid var(--rb-grey); border-bottom:2px solid var(--rb-grey);
-    border-radius:4px 4px 0 0; color:var(--rb-blue); font-weight:600; padding:.5rem .9rem;
-  }
-  .stTabs [aria-selected="true"]{
-    background:#fff; border-color:var(--rb-mblue); border-bottom:3px solid var(--rb-orange); color:#000;
-  }
 
   /* Status pills */
   .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:.78rem; font-weight:700; margin-right:6px; }
