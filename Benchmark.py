@@ -106,9 +106,11 @@ def inject_brand_css() -> None:
   /* Tabs */
   .stTabs [data-baseweb="tab-list"]{
     display:flex!important; width:100%!important; gap:12px; border-bottom:none; align-items:flex-end;
+    background:transparent!important;
   }
+  /* Inactive tab = white card; Active tab = brand blue + orange underline */
   .stTabs [data-baseweb="tab"]{
-    background:var(--muted)!important; background-image:none!important;
+    background:#fff!important; background-image:none!important;
     color:var(--rb-blue)!important; border-radius:6px 6px 0 0!important;
     border:1px solid var(--card-border)!important; border-bottom:none!important;
     box-shadow:none!important; padding:10px 18px!important; height:40px!important; line-height:20px!important;
@@ -147,13 +149,13 @@ def inject_brand_css() -> None:
   input, textarea { background:#fff !important; border:1px solid var(--card-border)!important; box-shadow:none!important; }
   input:focus, textarea:focus { border-color:var(--rb-mblue)!important; box-shadow:none!important; outline:none!important; }
 
-  /* Metrics: flatten */
-  [data-testid="stMetric"], [data-testid="stMetric"] * {
-    background:transparent!important; background-color:transparent!important; box-shadow:none!important;
-  }
+  /* Metrics / tiles: ensure pure white cards and remove inner bands */
   [data-testid="stMetric"]{
     background:#fff!important; border:1px solid var(--card-border)!important; border-radius:8px!important; padding:8px 12px!important;
+    box-shadow:none!important;
   }
+  [data-testid="stMetric"] *{ background:transparent!important; background-image:none!important; box-shadow:none!important; }
+  [data-testid="stMetricValue"], [data-testid="stMetricDelta"], [data-testid="stMetricLabel"]{ background:transparent!important; }
 
   /* File uploader */
   [data-testid="stFileUploaderDropzone"]{
@@ -186,7 +188,7 @@ def inject_brand_css() -> None:
   .pill.err { background:#fdecea; color:#b00020; border:1px solid #f7c5c0; }
 
   /* KPI tiles */
-  .kpi { background:#fff; border:1px solid var(--rb-grey); border-radius:6px; padding:10px 12px; }
+  .kpi { background:#fff; border:1px solid var(--card-border); border-radius:6px; padding:10px 12px; }
   .kpi .label { font-size:.85rem; color:#344; font-weight:600; margin-bottom:4px; }
   .kpi .value { font-size:1.35rem; font-weight:800; color:#000; }
 
