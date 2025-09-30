@@ -51,15 +51,15 @@ RB_COLORS = {
 # Rubrics template aligned to ROAM (font stack & palette)
 BRAND_TEMPLATE = go.layout.Template(
     layout=go.Layout(
-        colorway=[RB_COLORS["blue"], RB_COLORS["medblue"], RB_COLORS["ltblue"], RB_COLORS["grey"], RB_COLORS["orange"]],
+        colorway=[RB_COLORS["blue"], RB_COLORS["medblue"], RB_COLORS["ltblue"], RB_COLORS["orange"], RB_COLORS["grey"]],
         font=dict(family="Ringside, Inter, Segoe UI, Roboto, Arial, sans-serif"),
         legend=dict(orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right"),
         margin=dict(l=10, r=10, t=40, b=40),
         paper_bgcolor="#FFFFFF",
         plot_bgcolor="#FFFFFF",
         title=dict(font=dict(size=16)),
-        xaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)"),
-        yaxis=dict(showgrid=True, gridcolor="rgba(128,128,128,0.15)"),
+        xaxis=dict(showgrid=True, gridcolor="#ECEFF5", zerolinecolor="#E4E9F2", linecolor="#CBD5E1"),
+        yaxis=dict(showgrid=True, gridcolor="#ECEFF5", zerolinecolor="#E4E9F2", linecolor="#CBD5E1"),
     )
 )
 pio.templates["rubrics"] = BRAND_TEMPLATE
