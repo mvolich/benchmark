@@ -212,6 +212,13 @@ def inject_brand_css() -> None:
   @media (max-width: 1200px){
     .rb-insights{ min-height: auto; }  /* let it collapse on small screens */
   }
+  /* Hide an empty insights card completely */
+  .rb-insights:empty{
+    display:none !important;
+    min-height:0 !important;
+    padding:0 !important;
+    border:0 !important;
+  }
 
   /* ——— Remove text highlighting ——— */
   ::selection { background: transparent !important; color: inherit !important; }
