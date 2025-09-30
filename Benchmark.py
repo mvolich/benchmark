@@ -233,6 +233,45 @@ def inject_brand_css() -> None:
     outline-offset: 2px !important;
   }
 </style>
+<style>
+  /* --- Tabs color fixes: remove grey gutter, fuse active tab with panel, kill tints --- */
+  .stTabs [data-baseweb="tab-list"]{
+    border-bottom: 1px solid var(--card-border) !important; /* baseline */
+    background: transparent !important;
+  }
+  /* Inactive tab = white card */
+  .stTabs [data-baseweb="tab"]{
+    background:#fff !important;
+    border:1px solid var(--card-border) !important;
+    border-bottom:none !important;
+    border-radius:6px 6px 0 0 !important;
+    box-shadow:none !important;
+  }
+  /* Active tab: brand blue + orange underline; no dark seam */
+  .stTabs [aria-selected="true"]{
+    background:var(--rb-mblue) !important;
+    color:#fff !important;
+    border-color:var(--rb-mblue) !important;
+    border-bottom:1px solid #fff !important;   /* fuses to white panel */
+    box-shadow: inset 0 -3px 0 var(--rb-orange) !important;
+  }
+  /* Tab panel: white, bordered, docked to tabs */
+  .stTabs [data-baseweb="tab-panel"]{
+    background:#fff !important;
+    border:1px solid var(--card-border) !important;
+    border-top:none !important;                 /* meets tabs cleanly */
+    border-radius:0 6px 6px 6px !important;
+  }
+  /* Belt-and-braces: remove Base Web inner tints/gradients */
+  .stTabs [data-baseweb="tab"] *{
+    background:transparent !important;
+    background-image:none !important;
+    box-shadow:none !important;
+  }
+  .stTabs [data-baseweb="tab"] *[style*="background"]{
+    background:transparent !important;
+  }
+</style>
         """,
         unsafe_allow_html=True,
     )
