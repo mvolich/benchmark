@@ -69,13 +69,21 @@ PLOT_HEIGHT = 380
 
 def inject_brand_css() -> None:
     st.markdown(
-        """
+        f"""
 <style>
-  /* ROAM styles ported: Inter font, Rubrics palette, tabs/buttons */
+  /* ROAM global style — cache bust */
+  /* version: v1 */
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
   @import url('https://fonts.googleapis.com/icon?family=Material+Icons');
-  :root{ --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520; }
-  html, body, .stApp, [class*="css"] { background-color:#f8f9fa; font-family:Inter, "Segoe UI", Roboto, Arial, sans-serif !important; color:#0b0c0c; }
+  :root {{
+    --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB;
+    --rb-grey:#D8D7DF; --rb-orange:#CF4520;
+  }}
+  html, body, .stApp, [class*="css"], [data-testid="stAppViewContainer"], [data-testid="stMarkdownContainer"] * {{
+    background-color:#f8f9fa;
+    font-family: 'Inter', 'Segoe UI', Roboto, Arial, sans-serif !important;
+    color:#0b0c0c;
+  }}
 
   /* Tabs */
   .stTabs [data-baseweb="tab-list"]{ display:flex !important; width:100% !important; gap:12px; border-bottom:none; }
