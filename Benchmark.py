@@ -49,7 +49,7 @@ RB_COLORS = {
 BRAND_TEMPLATE = go.layout.Template(
     layout=go.Layout(
         colorway=[RB_COLORS["blue"], RB_COLORS["med"], RB_COLORS["light"], RB_COLORS["grey"], RB_COLORS["orange"]],
-        font=dict(family="Arial"),
+        font=dict(family="Arimo, Arial, sans-serif"),
         legend=dict(orientation="h", y=1.02, yanchor="bottom", x=1, xanchor="right"),
         margin=dict(l=12, r=12, t=40, b=40),
         paper_bgcolor="#FFFFFF",
@@ -68,10 +68,13 @@ def inject_brand_css() -> None:
     st.markdown(
         """
 <style>
+  /* Import Arimo (web-safe Arial alternative from Google Fonts) */
+  @import url('https://fonts.googleapis.com/css2?family=Arimo:wght@400;700&display=swap');
+
   :root{
     --rb-blue:#001E4F; --rb-mblue:#2C5697; --rb-lblue:#7BA4DB; --rb-grey:#D8D7DF; --rb-orange:#CF4520;
   }
-  html, body, .stApp, [class*="css"] { background:#f7f8fb; color:#0b0c0c; font-family: 'Arial' !important; }
+  html, body, .stApp, [class*="css"] { background:#f7f8fb; color:#0b0c0c; font-family: 'Arimo', 'Arial', sans-serif !important; }
   .block-container { padding-top: 3.5rem; padding-bottom: 4rem; }
 
   /* Header */
